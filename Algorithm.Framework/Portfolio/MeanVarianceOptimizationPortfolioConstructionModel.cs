@@ -37,6 +37,7 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         private readonly int _lookback;
         private readonly int _period;
         private readonly Resolution _resolution;
+        private readonly PortfolioBias _portfolioBias;
         private readonly IPortfolioOptimizer _optimizer;
 
         private readonly List<Symbol> _pendingRemoval;
@@ -47,18 +48,20 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// </summary>
         /// <param name="rebalancingDateRules">The date rules used to define the next expected rebalance time
         /// in UTC</param>
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
         /// <param name="lookback">Historical return lookback period</param>
         /// <param name="period">The time interval of history price to calculate the weight</param>
         /// <param name="resolution">The resolution of the history price</param>
         /// <param name="targetReturn">The target portfolio return</param>
         /// <param name="optimizer">The portfolio optimization algorithm. If the algorithm is not provided then the default will be mean-variance optimization.</param>
         public MeanVarianceOptimizationPortfolioConstructionModel(IDateRule rebalancingDateRules,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort,
             int lookback = 1,
             int period = 63,
             Resolution resolution = Resolution.Daily,
             double targetReturn = 0.02,
             IPortfolioOptimizer optimizer = null)
-            : this(rebalancingDateRules.ToFunc(), lookback, period, resolution, targetReturn, optimizer)
+            : this(rebalancingDateRules.ToFunc(), portfolioBias, lookback, period, resolution, targetReturn, optimizer)
         {
         }
 
@@ -66,18 +69,20 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// Initialize the model
         /// </summary>
         /// <param name="rebalanceResolution">Rebalancing frequency</param>
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
         /// <param name="lookback">Historical return lookback period</param>
         /// <param name="period">The time interval of history price to calculate the weight</param>
         /// <param name="resolution">The resolution of the history price</param>
         /// <param name="targetReturn">The target portfolio return</param>
         /// <param name="optimizer">The portfolio optimization algorithm. If the algorithm is not provided then the default will be mean-variance optimization.</param>
         public MeanVarianceOptimizationPortfolioConstructionModel(Resolution rebalanceResolution,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort,
             int lookback = 1,
             int period = 63,
             Resolution resolution = Resolution.Daily,
             double targetReturn = 0.02,
             IPortfolioOptimizer optimizer = null)
-            : this(rebalanceResolution.ToTimeSpan(), lookback, period, resolution, targetReturn, optimizer)
+            : this(rebalanceResolution.ToTimeSpan(), portfolioBias, lookback, period, resolution, targetReturn, optimizer)
         {
         }
 
@@ -85,18 +90,20 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// Initialize the model
         /// </summary>
         /// <param name="timeSpan">Rebalancing frequency</param>
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
         /// <param name="lookback">Historical return lookback period</param>
         /// <param name="period">The time interval of history price to calculate the weight</param>
         /// <param name="resolution">The resolution of the history price</param>
         /// <param name="targetReturn">The target portfolio return</param>
         /// <param name="optimizer">The portfolio optimization algorithm. If the algorithm is not provided then the default will be mean-variance optimization.</param>
         public MeanVarianceOptimizationPortfolioConstructionModel(TimeSpan timeSpan,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort,
             int lookback = 1,
             int period = 63,
             Resolution resolution = Resolution.Daily,
             double targetReturn = 0.02,
             IPortfolioOptimizer optimizer = null)
-            : this(dt => dt.Add(timeSpan), lookback, period, resolution, targetReturn, optimizer)
+            : this(dt => dt.Add(timeSpan), portfolioBias, lookback, period, resolution, targetReturn, optimizer)
         {
         }
 
@@ -107,6 +114,7 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// For a given algorithm UTC DateTime the func returns the next expected rebalance time
         /// or null if unknown, in which case the function will be called again in the next loop. Returning current time
         /// will trigger rebalance. If null will be ignored</param>
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
         /// <param name="lookback">Historical return lookback period</param>
         /// <param name="period">The time interval of history price to calculate the weight</param>
         /// <param name="resolution">The resolution of the history price</param>
@@ -116,12 +124,13 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// constructor for the date rules parameter.
         /// For performance we prefer python algorithms using the C# implementation</remarks>
         public MeanVarianceOptimizationPortfolioConstructionModel(PyObject rebalancingParam,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort,
             int lookback = 1,
             int period = 63,
             Resolution resolution = Resolution.Daily,
             double targetReturn = 0.02,
             IPortfolioOptimizer optimizer = null)
-            : this((Func<DateTime, DateTime?>)null, lookback, period, resolution, targetReturn, optimizer)
+            : this((Func<DateTime, DateTime?>)null, portfolioBias, lookback, period, resolution, targetReturn, optimizer)
         {
             SetRebalancingFunc(rebalancingParam);
         }
@@ -131,18 +140,21 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// </summary>
         /// <param name="rebalancingFunc">For a given algorithm UTC DateTime returns the next expected rebalance UTC time.
         /// Returning current time will trigger rebalance. If null will be ignored</param>
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
         /// <param name="lookback">Historical return lookback period</param>
         /// <param name="period">The time interval of history price to calculate the weight</param>
         /// <param name="resolution">The resolution of the history price</param>
         /// <param name="targetReturn">The target portfolio return</param>
         /// <param name="optimizer">The portfolio optimization algorithm. If the algorithm is not provided then the default will be mean-variance optimization.</param>
         public MeanVarianceOptimizationPortfolioConstructionModel(Func<DateTime, DateTime> rebalancingFunc = null,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort,
             int lookback = 1,
             int period = 63,
             Resolution resolution = Resolution.Daily,
             double targetReturn = 0.02,
             IPortfolioOptimizer optimizer = null)
             : this(rebalancingFunc != null ? (Func<DateTime, DateTime?>)(timeUtc => rebalancingFunc(timeUtc)) : null,
+                portfolioBias,
                 lookback,
                 period,
                 resolution,
@@ -157,12 +169,14 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// <param name="rebalancingFunc">For a given algorithm UTC DateTime returns the next expected rebalance time
         /// or null if unknown, in which case the function will be called again in the next loop. Returning current time
         /// will trigger rebalance.</param>
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
         /// <param name="lookback">Historical return lookback period</param>
         /// <param name="period">The time interval of history price to calculate the weight</param>
         /// <param name="resolution">The resolution of the history price</param>
         /// <param name="targetReturn">The target portfolio return</param>
         /// <param name="optimizer">The portfolio optimization algorithm. If the algorithm is not provided then the default will be mean-variance optimization.</param>
         public MeanVarianceOptimizationPortfolioConstructionModel(Func<DateTime, DateTime?> rebalancingFunc,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort,
             int lookback = 1,
             int period = 63,
             Resolution resolution = Resolution.Daily,
@@ -173,8 +187,11 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
             _lookback = lookback;
             _period = period;
             _resolution = resolution;
+            _portfolioBias = portfolioBias;
 
-            _optimizer = optimizer ?? new MinimumVariancePortfolioOptimizer(targetReturn: targetReturn);
+            var lower = _portfolioBias == PortfolioBias.Long ? 0 : -1;
+            var upper = _portfolioBias == PortfolioBias.Short ? 0 : 1;
+            _optimizer = optimizer ?? new MinimumVariancePortfolioOptimizer(lower, upper, targetReturn);
 
             _pendingRemoval = new List<Symbol>();
             _symbolDataDict = new Dictionary<Symbol, ReturnsSymbolData>();

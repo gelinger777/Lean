@@ -31,6 +31,7 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
     /// </summary>
     public class EqualWeightingPortfolioConstructionModel : PortfolioConstructionModel
     {
+        private readonly PortfolioBias _portfolioBias;
         private List<Symbol> _removedSymbols;
 
         /// <summary>
@@ -38,8 +39,10 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// </summary>
         /// <param name="rebalancingDateRules">The date rules used to define the next expected rebalance time
         /// in UTC</param>
-        public EqualWeightingPortfolioConstructionModel(IDateRule rebalancingDateRules)
-            : this(rebalancingDateRules.ToFunc())
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
+        public EqualWeightingPortfolioConstructionModel(IDateRule rebalancingDateRules,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort)
+            : this(rebalancingDateRules.ToFunc(), portfolioBias)
         {
         }
 
@@ -49,9 +52,12 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// <param name="rebalancingFunc">For a given algorithm UTC DateTime returns the next expected rebalance time
         /// or null if unknown, in which case the function will be called again in the next loop. Returning current time
         /// will trigger rebalance. If null will be ignored</param>
-        public EqualWeightingPortfolioConstructionModel(Func<DateTime, DateTime?> rebalancingFunc)
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
+        public EqualWeightingPortfolioConstructionModel(Func<DateTime, DateTime?> rebalancingFunc,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort)
             : base(rebalancingFunc)
         {
+            _portfolioBias = portfolioBias;
         }
 
         /// <summary>
@@ -59,8 +65,10 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// </summary>
         /// <param name="rebalancingFunc">For a given algorithm UTC DateTime returns the next expected rebalance UTC time.
         /// Returning current time will trigger rebalance. If null will be ignored</param>
-        public EqualWeightingPortfolioConstructionModel(Func<DateTime, DateTime> rebalancingFunc)
-            : this(rebalancingFunc != null ? (Func<DateTime, DateTime?>)(timeUtc => rebalancingFunc(timeUtc)) : null)
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
+        public EqualWeightingPortfolioConstructionModel(Func<DateTime, DateTime> rebalancingFunc,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort)
+            : this(rebalancingFunc != null ? (Func<DateTime, DateTime?>)(timeUtc => rebalancingFunc(timeUtc)) : null, portfolioBias)
         {
         }
 
@@ -71,11 +79,13 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// For a given algorithm UTC DateTime the func returns the next expected rebalance time
         /// or null if unknown, in which case the function will be called again in the next loop. Returning current time
         /// will trigger rebalance. If null will be ignored</param>
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
         /// <remarks>This is required since python net can not convert python methods into func nor resolve the correct
         /// constructor for the date rules parameter.
         /// For performance we prefer python algorithms using the C# implementation</remarks>
-        public EqualWeightingPortfolioConstructionModel(PyObject rebalancingParam)
-            : this((Func<DateTime, DateTime?>)null)
+        public EqualWeightingPortfolioConstructionModel(PyObject rebalancingParam,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort)
+            : this((Func<DateTime, DateTime?>)null, portfolioBias)
         {
             SetRebalancingFunc(rebalancingParam);
         }
@@ -84,8 +94,10 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// Initialize a new instance of <see cref="EqualWeightingPortfolioConstructionModel"/>
         /// </summary>
         /// <param name="timeSpan">Rebalancing frequency</param>
-        public EqualWeightingPortfolioConstructionModel(TimeSpan timeSpan)
-            : this(dt => dt.Add(timeSpan))
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
+        public EqualWeightingPortfolioConstructionModel(TimeSpan timeSpan,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort)
+            : this(dt => dt.Add(timeSpan), portfolioBias)
         {
         }
 
@@ -93,8 +105,10 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
         /// Initialize a new instance of <see cref="EqualWeightingPortfolioConstructionModel"/>
         /// </summary>
         /// <param name="resolution">Rebalancing frequency</param>
-        public EqualWeightingPortfolioConstructionModel(Resolution resolution = Resolution.Daily)
-            : this(resolution.ToTimeSpan())
+        /// <param name="portfolioBias">Specifies the bias of the portfolio (Short, Long/Short, Long)</param>
+        public EqualWeightingPortfolioConstructionModel(Resolution resolution = Resolution.Daily,
+            PortfolioBias portfolioBias = PortfolioBias.LongShort)
+            : this(resolution.ToTimeSpan(), portfolioBias)
         {
         }
 
@@ -119,13 +133,25 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
             var result = new Dictionary<Insight, double>();
 
             // give equal weighting to each security
-            var count = activeInsights.Count(x => x.Direction != InsightDirection.Flat);
+            var count = activeInsights.Count(x => x.Direction != InsightDirection.Flat && RespectPortfolioBias(x));
             var percent = count == 0 ? 0 : 1m / count;
             foreach (var insight in activeInsights)
             {
-                result[insight] = (double)((int)insight.Direction * percent);
+                result[insight] =
+                    (double)((int)(RespectPortfolioBias(insight) ? insight.Direction : InsightDirection.Flat)
+                             * percent);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Method that will determine if a given insight respects the portfolio bias
+        /// </summary>
+        /// <param name="insight">The insight to create a target for</param>
+        /// <returns>True if the insight respects the portfolio bias</returns>
+        protected bool RespectPortfolioBias(Insight insight)
+        {
+            return _portfolioBias == PortfolioBias.LongShort || (int)insight.Direction == (int)_portfolioBias;
         }
 
         /// <summary>
@@ -168,12 +194,17 @@ namespace QuantConnect.Algorithm.Framework.Portfolio
 
             var errorSymbols = new HashSet<Symbol>();
 
-            // Determine target percent for the given insights
-            var percents = DetermineTargetPercent(lastActiveInsights);
+            // Determine target percent for the given insights that respect the portfolio bias
+            var percents = DetermineTargetPercent(lastActiveInsights.ToList());
 
             foreach (var insight in lastActiveInsights)
             {
-                var target = PortfolioTarget.Percent(algorithm, insight.Symbol, percents[insight]);
+                double percent;
+                if (!percents.TryGetValue(insight, out percent))
+                {
+                    continue;
+                }
+                var target = PortfolioTarget.Percent(algorithm, insight.Symbol, percent);
                 if (target != null)
                 {
                     targets.Add(target);
