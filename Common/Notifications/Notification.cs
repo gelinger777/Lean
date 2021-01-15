@@ -14,8 +14,11 @@
 */
 
 using System;
+using System.Net;
+using System.Net.Mail;
 using System.Collections.Generic;
 using QuantConnect.Util;
+using QuantConnect.Logging;
 
 namespace QuantConnect.Notifications
 {
@@ -24,6 +27,9 @@ namespace QuantConnect.Notifications
     /// </summary>
     public abstract class Notification
     {
+        private static SmtpClient sendclient;
+        private static string username = "updates@deepcovecapital.com";
+        private static string pass = "dccmUpdates2020";
         /// <summary>
         /// Method for sending implementations of notification object types.
         /// </summary>
@@ -31,6 +37,44 @@ namespace QuantConnect.Notifications
         public virtual void Send()
         {
             //
+        }
+        public virtual void Send(NotificationEmail notification)
+        {
+            if (sendclient == null)
+            {
+                sendclient = new SmtpClient("smtp.gmail.com", 587);
+                sendclient.EnableSsl = true;
+                sendclient.UseDefaultCredentials = true;
+                sendclient.Credentials = new NetworkCredential(username, pass);
+            }
+            MailMessage msg = new MailMessage(new MailAddress(username), new MailAddress(notification.Address));
+
+            msg.Subject = notification.Subject;
+
+            msg.Body = notification.Message;
+            bool retry = true;
+            try
+            {
+                sendclient.Send(msg);
+                retry = true;
+            }
+            catch (Exception ex)
+            {
+                if (!retry)
+                {
+                    Log.Error(ex, $"Notification.Send(): Failed to send email reply to {msg.To.ToString()}");
+                    return;
+                }
+
+                retry = false;
+            }
+            finally
+            {
+                msg.Dispose();
+            }
+
+
+            Log.Trace("Notification.Send(): Email notification successfully sent.");
         }
     }
 

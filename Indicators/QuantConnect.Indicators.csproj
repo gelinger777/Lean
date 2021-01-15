@@ -181,6 +181,7 @@
     <Compile Include="DetrendedPriceOscillator.cs" />
     <Compile Include="DonchianChannel.cs" />
     <Compile Include="DoubleExponentialMovingAverage.cs" />
+    <Compile Include="IntraweekVwap.cs" />
     <Compile Include="PythonIndicator.cs" />
     <Compile Include="IntradayVwap.cs" />
     <Compile Include="SchaffTrendCycle.cs" />

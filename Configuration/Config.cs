@@ -184,6 +184,19 @@ namespace QuantConnect.Configuration
         }
 
         /// <summary>
+        /// Sets a configuration value. This is really only used to help testing. The key heye can be
+        /// specified as {environment}.key to set a value on a specific environment
+        /// </summary>
+        /// <param name="key">The key to be set</param>
+        /// <param name="value">The new value</param>
+        public static void SetDecimal(string key, decimal value)
+        {
+            JToken environment = Settings.Value;
+
+            environment[key] = value;
+        }
+
+        /// <summary>
         /// Get a boolean value configuration setting by a configuration key.
         /// </summary>
         /// <param name="key">String value of the configuration key.</param>

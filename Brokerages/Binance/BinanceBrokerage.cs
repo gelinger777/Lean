@@ -27,6 +27,8 @@ using System.Threading;
 using Newtonsoft.Json;
 using QuantConnect.Util;
 using Timer = System.Timers.Timer;
+using System.Globalization;
+using System.Threading.Tasks;
 
 namespace QuantConnect.Brokerages.Binance
 {
@@ -36,7 +38,7 @@ namespace QuantConnect.Brokerages.Binance
     [BrokerageFactory(typeof(BinanceBrokerageFactory))]
     public partial class BinanceBrokerage : BaseWebsocketsBrokerage, IDataQueueHandler
     {
-        private const string WebSocketBaseUrl = "wss://stream.binance.com:9443/ws";
+        private const string WebSocketBaseUrl = "wss://stream.binance.com:9443";
 
         private readonly IAlgorithm _algorithm;
         private readonly SymbolPropertiesDatabaseSymbolMapper _symbolMapper = new SymbolPropertiesDatabaseSymbolMapper(Market.Binance);
@@ -46,7 +48,14 @@ namespace QuantConnect.Brokerages.Binance
 
         private readonly Timer _keepAliveTimer;
         private readonly Timer _reconnectTimer;
+        private RealTimeSynchronizedTimer _readjustPositions;
+        private readonly TimeSpan _subscribeDelay = TimeSpan.FromMilliseconds(250);
+        private HashSet<Symbol> SubscribedSymbols = new HashSet<Symbol>();
+        private readonly object _lockerSubscriptions = new object();
+        private DateTime _lastSubscribeRequestUtcTime = DateTime.MinValue;
+        private bool _subscriptionsPending;
         private readonly BinanceRestApiClient _apiClient;
+        private readonly IWebSocket TickerWebSocket;
 
         /// <summary>
         /// Constructor for brokerage
@@ -81,6 +90,16 @@ namespace QuantConnect.Brokerages.Binance
             _apiClient.OrderStatusChanged += (s, e) => OnOrderEvent(e);
             _apiClient.Message += (s, e) => OnMessage(e);
 
+            var tickerConnectionHandler = new DefaultConnectionHandler();
+            tickerConnectionHandler.ReconnectRequested += (s, e) => { ProcessSubscriptionRequest(); };
+            TickerWebSocket = new BinanceWebSocketWrapper(
+                tickerConnectionHandler
+            );
+
+            TickerWebSocket.Message += (s, e) => OnMessageImpl(s, e, OnStreamMessageImpl);
+            TickerWebSocket.Message += (s, e) => (s as BinanceWebSocketWrapper)?.ConnectionHandler.KeepAlive(DateTime.UtcNow);
+            TickerWebSocket.Error += OnError;
+
             // User data streams will close after 60 minutes. It's recommended to send a ping about every 30 minutes.
             // Source: https://github.com/binance-exchange/binance-official-api-docs/blob/master/user-data-stream.md#pingkeep-alive-a-listenkey
             _keepAliveTimer = new Timer
@@ -90,7 +109,49 @@ namespace QuantConnect.Brokerages.Binance
             };
             _keepAliveTimer.Elapsed += (s, e) => _apiClient.SessionKeepAlive();
 
-            WebSocket.Open += (s, e) => { _keepAliveTimer.Start(); };
+            WebSocket.Open += (s, e) =>
+            {
+                _keepAliveTimer.Start();
+
+                _readjustPositions = new RealTimeSynchronizedTimer(TimeSpan.FromMinutes(29.9), (d) =>
+                {
+
+                    Log.Trace("BinanceBrokerage.ReadjustPositions(): Resyncing Open Positions");
+                    var holdings = GetCashBalance(_algorithm);
+                    if (holdings == null)
+                        return;
+
+                    foreach (var security in algorithm.Portfolio.CashBook)
+                    {
+                        if (holdings.Any(x => x.Currency == security.Key))
+                        {
+                            var holding = holdings.FirstOrDefault(x => x.Currency == security.Key);
+                            security.Value.SetAmount(holding.Amount);
+                        }
+                        else
+                        {
+                            security.Value.SetAmount(0);
+                        }
+                    }
+                    
+                    var positions = GetAccountHoldings();
+                    foreach (var security in algorithm.Securities)
+                    {
+                        if (positions.Any(x => x.Symbol == security.Key))
+                        {
+                            var position = positions.FirstOrDefault(x => x.Symbol == security.Key);
+                            security.Value.Holdings.SetHoldings(position.AveragePrice, position.Quantity);
+                        }
+                        else
+                        {
+                            security.Value.Holdings.SetHoldings(0, 0);
+                        }
+                        if (security.Value.Holdings.Quantity != 0)
+                            Log.Trace($"BinanceBrokerage.ReadjustPositions(): {security.Value.Symbol} has existing holding: {security.Value.Holdings.Quantity}");
+                    }
+                });
+                _readjustPositions.Start();
+            };
             WebSocket.Closed += (s, e) => { _keepAliveTimer.Stop(); };
 
             // A single connection to stream.binance.com is only valid for 24 hours; expect to be disconnected at the 24 hour mark
@@ -107,6 +168,8 @@ namespace QuantConnect.Brokerages.Binance
 
                 Log.Trace("Daily websocket restart: connect");
                 Connect();
+
+                ProcessSubscriptionRequest();
             };
         }
 
@@ -128,7 +191,7 @@ namespace QuantConnect.Brokerages.Binance
             _apiClient.CreateListenKey();
             _reconnectTimer.Start();
 
-            WebSocket.Initialize($"{WebSocketBaseUrl}/{_apiClient.SessionId}");
+            WebSocket.Initialize($"{WebSocketBaseUrl}/ws/{_apiClient.SessionId}");
 
             base.Connect();
         }
@@ -150,9 +213,27 @@ namespace QuantConnect.Brokerages.Binance
         /// <returns></returns>
         public override List<Holding> GetAccountHoldings()
         {
-            return _apiClient.GetAccountHoldings();
+            var holdings = new List<Holding>();
+            var _tradesDictionary = _apiClient.GetAccountHoldings();
+
+            if (_tradesDictionary != null)
+            {
+                foreach (var trades in _tradesDictionary.Values)
+                {
+                    var holding = ConvertHolding(trades.ToList().OrderBy(x => x.Time));
+                    if (holding.Symbol.EndsWith("BTC"))
+                    {
+                        var cash = holding.Symbol.Value.RemoveFromEnd("BTC");
+                        holding.Quantity = (_cashHoldings.Any(x => x.Currency == cash) ? _cashHoldings.Where(x => x.Currency == cash).First().Amount : 0);
+                    }
+                    holdings.Add(holding);
+                }
+            }
+
+            return holdings;
         }
 
+        private List<CashAmount> _cashHoldings;
         /// <summary>
         /// Gets the total account cash balance for specified account type
         /// </summary>
@@ -164,9 +245,27 @@ namespace QuantConnect.Brokerages.Binance
             if (balances == null || !balances.Any())
                 return new List<CashAmount>();
 
-            return balances
+            _cashHoldings =  balances
                 .Select(b => new CashAmount(b.Amount, b.Asset.LazyToUpper()))
                 .ToList();
+            return _cashHoldings;
+        }
+
+        /// <summary>
+        /// Gets the total account cash balance for specified account type
+        /// </summary>
+        /// <returns></returns>
+        public List<CashAmount> GetCashBalance(Interfaces.IAlgorithm algorithm)
+        {
+            var account = _apiClient.GetCashBalance();
+            var balances = account.Balances?.Where(balance => balance.Amount > 0).ToList();
+            if (balances == null || !balances.Any())
+                return new List<CashAmount>();
+
+            _cashHoldings = balances
+                .Select(b => new CashAmount(b.Amount, b.Asset.LazyToUpper()))
+                .ToList();
+            return _cashHoldings;
         }
 
         /// <summary>
@@ -284,9 +383,9 @@ namespace QuantConnect.Brokerages.Binance
             }
 
             if (request.TickType != TickType.Trade)
-            {
+            {/*
                 OnMessage(new BrokerageMessageEvent(BrokerageMessageType.Warning, "InvalidTickType",
-                    $"{request.TickType} tick type not supported, no history returned"));
+                    $"{request.TickType} tick type not supported, no history returned"));*/
                 yield break;
             }
 
@@ -405,47 +504,143 @@ namespace QuantConnect.Brokerages.Binance
         /// <param name="symbols">The list of symbols to subscribe</param>
         public override void Subscribe(IEnumerable<Symbol> symbols)
         {
-            foreach (var symbol in symbols)
+            lock (_lockerSubscriptions)
             {
-                Send(WebSocket,
-                    new
+                List<Symbol> symbolsToSubscribe = new List<Symbol>();
+                foreach (var symbol in symbols)
+                {
+                    if (symbol.Value.Contains("UNIVERSE") ||
+                        string.IsNullOrEmpty(_symbolMapper.GetBrokerageSymbol(symbol)) ||
+                        SubscribedSymbols.Contains(symbol))
                     {
-                        method = "SUBSCRIBE",
-                        @params = new[]
-                        {
-                            $"{symbol.Value.ToLowerInvariant()}@trade",
-                            $"{symbol.Value.ToLowerInvariant()}@bookTicker"
-                        },
-                        id = GetNextRequestId()
+                        continue;
                     }
-                );
+
+                    symbolsToSubscribe.Add(symbol);
+                }
+
+                if (symbolsToSubscribe.Count == 0)
+                    return;
+
+                Log.Trace("BinanceMarginBrokerage.Subscribe(): {0}", string.Join(",", symbolsToSubscribe.Select(x => x.Value)));
+
+                SubscribedSymbols = symbolsToSubscribe
+                    .Union(SubscribedSymbols.ToList())
+                    .ToList()
+                    .ToHashSet();
+
+                ProcessSubscriptionRequest();
             }
         }
 
+        private void ProcessSubscriptionRequest()
+        {
+            if (_subscriptionsPending) return;
+
+            _lastSubscribeRequestUtcTime = DateTime.UtcNow;
+            _subscriptionsPending = true;
+
+            Task.Run(async () =>
+            {
+                while (true)
+                {
+                    DateTime requestTime;
+                    List<Symbol> symbolsToSubscribe;
+                    lock (_lockerSubscriptions)
+                    {
+                        requestTime = _lastSubscribeRequestUtcTime.Add(_subscribeDelay);
+                        symbolsToSubscribe = SubscribedSymbols.ToList();
+                    }
+
+                    if (DateTime.UtcNow > requestTime)
+                    {
+                        // restart streaming session
+                        SubscribeSymbols(symbolsToSubscribe);
+
+                        lock (_lockerSubscriptions)
+                        {
+                            _lastSubscribeRequestUtcTime = DateTime.UtcNow;
+                            if (SubscribedSymbols.Count == symbolsToSubscribe.Count)
+                            {
+                                // no more subscriptions pending, task finished
+                                _subscriptionsPending = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    await Task.Delay(200).ConfigureAwait(false);
+                }
+            });
+        }
+
+        private void SubscribeSymbols(List<Symbol> symbolsToSubscribe)
+        {
+            if (symbolsToSubscribe.Count == 0)
+                return;
+
+            //close current connection
+            if (TickerWebSocket.IsOpen)
+            {
+                TickerWebSocket.Close();
+            }
+            Wait(() => !TickerWebSocket.IsOpen);
+
+            //var streams = symbolsToSubscribe.Select((s) => string.Format(CultureInfo.InvariantCulture, "{0}@depth/{0}@trade", s.Value.LazyToLower()));
+            var streams = symbolsToSubscribe.Select((s) => string.Format(CultureInfo.InvariantCulture, "{0}@trade", s.Value.ToLower(CultureInfo.InvariantCulture)));
+            TickerWebSocket.Initialize($"{WebSocketBaseUrl}/stream?streams={string.Join("/", streams)}");
+
+            Log.Trace($"BaseWebsocketsBrokerage(): Reconnecting... IsConnected: {IsConnected}");
+
+            TickerWebSocket.Error -= this.OnError;
+            try
+            {
+                //try to clean up state
+                if (TickerWebSocket.IsOpen)
+                {
+                    TickerWebSocket.Close();
+                    Wait(() => !TickerWebSocket.IsOpen);
+                }
+                if (!TickerWebSocket.IsOpen)
+                {
+                    TickerWebSocket.Connect();
+                    Wait(() => TickerWebSocket.IsOpen);
+                }
+            }
+            finally
+            {
+                TickerWebSocket.Error += this.OnError;
+                this.Subscribe(symbolsToSubscribe);
+            }
+
+            Log.Trace("BinanceMarginBrokerage.Subscribe: Sent subscribe.");
+        }
+        
         /// <summary>
         /// Ends current subscriptions
         /// </summary>
         private bool Unsubscribe(IEnumerable<Symbol> symbols)
         {
-            if (WebSocket.IsOpen)
+            lock (_lockerSubscriptions)
             {
-                foreach (var symbol in symbols)
+                if (WebSocket.IsOpen)
                 {
-                    Send(WebSocket,
-                        new
-                        {
-                            method = "UNSUBSCRIBE",
-                            @params = new[]
-                            {
-                                $"{symbol.Value.ToLowerInvariant()}@trade",
-                                $"{symbol.Value.ToLowerInvariant()}@bookTicker"
-                            },
-                            id = GetNextRequestId()
-                        }
-                    );
+                    var symbolsToUnsubscribe = (from symbol in symbols
+                                                where SubscribedSymbols.Contains(symbol)
+                                                select symbol).ToList();
+                    if (symbolsToUnsubscribe.Count == 0)
+                        return true;
+
+                    Log.Trace("BinanceMarginBrokerage.Unsubscribe(): {0}", string.Join(",", symbolsToUnsubscribe.Select(x => x.Value)));
+
+                    SubscribedSymbols = SubscribedSymbols
+                        .ToList()
+                        .Where(x => !symbolsToUnsubscribe.Contains(x))
+                        .ToHashSet();
+
+                    ProcessSubscriptionRequest();
                 }
             }
-
             return true;
         }
 

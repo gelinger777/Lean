@@ -62,6 +62,16 @@ namespace QuantConnect.Brokerages
         Binance,
 
         /// <summary>
+        /// Transaction and submit/execution rules will use binance margin models
+        /// </summary>
+        BinanceMargin,
+
+        /// <summary>
+        /// Transaction and submit/execution rules will use binance futures models
+        /// </summary>
+        BinanceFutures,
+
+        /// <summary>
         /// Transaction and submit/execution rules will use gdax models
         /// </summary>
         GDAX = 12,

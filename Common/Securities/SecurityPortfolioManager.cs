@@ -613,10 +613,10 @@ namespace QuantConnect.Securities
         /// <param name="symbol">The symbol to compute margin remaining for</param>
         /// <param name="direction">The order/trading direction</param>
         /// <returns>The maximum order size that is currently executable in the specified direction</returns>
-        public decimal GetMarginRemaining(Symbol symbol, OrderDirection direction = OrderDirection.Buy)
+        public decimal GetMarginRemaining(Symbol symbol, OrderDirection direction = OrderDirection.Buy, decimal price = 0m)
         {
             var security = Securities[symbol];
-            var context = new BuyingPowerParameters(this, security, direction);
+            var context = new BuyingPowerParameters(this, security, direction, price);
             return security.BuyingPowerModel.GetBuyingPower(context).Value;
         }
 
@@ -627,9 +627,9 @@ namespace QuantConnect.Securities
         /// <param name="symbol">The symbol to compute margin remaining for</param>
         /// <param name="direction">The order/trading direction</param>
         /// <returns>The maximum order size that is currently executable in the specified direction</returns>
-        public decimal GetBuyingPower(Symbol symbol, OrderDirection direction = OrderDirection.Buy)
+        public decimal GetBuyingPower(Symbol symbol, OrderDirection direction = OrderDirection.Buy, decimal price = 0m)
         {
-            return GetMarginRemaining(symbol, direction);
+            return GetMarginRemaining(symbol, direction, price);
         }
 
         /// <summary>

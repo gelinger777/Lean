@@ -143,9 +143,12 @@ namespace QuantConnect.Messaging
         public void SendNotification(Notification notification)
         {
             var type = notification.GetType();
-            if (type == typeof (NotificationEmail)
-             || type == typeof (NotificationWeb)
-             || type == typeof (NotificationSms))
+            if (type == typeof(NotificationEmail))
+            {
+                notification.Send((NotificationEmail)notification);
+            }
+            else if (type == typeof(NotificationWeb)
+             || type == typeof(NotificationSms))
             {
                 Log.Error("Messaging.SendNotification(): Send not implemented for notification of type: " + type.Name);
                 return;

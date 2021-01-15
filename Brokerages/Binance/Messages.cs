@@ -14,6 +14,7 @@
 */
 
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using QuantConnect.Orders;
 using System;
 using System.Globalization;
@@ -59,6 +60,21 @@ namespace QuantConnect.Brokerages.Binance.Messages
         public decimal Quantity => string.Equals(Side, "buy", StringComparison.OrdinalIgnoreCase) ? OriginalAmount : -OriginalAmount;
     }
 
+    public class TradeList
+    {
+        public string Symbol { get; set; }
+        public long Id { get; set; }
+        public long OrderId { get; set; }
+        public decimal Price { get; set; }
+        public decimal Qty { get; set; }
+        public decimal QuoteQty { get; set; }
+        public decimal Commission { get; set; }
+        public string CommissionAsset { get; set; }
+        public long Time { get; set; }
+        public bool IsBuyer { get; set; }
+        public bool IsMaker { get; set; }
+        public bool IsBestMatch { get; set; }
+    }
     public class OpenOrder : Order
     {
         public long Time { get; set; }
@@ -120,6 +136,52 @@ namespace QuantConnect.Brokerages.Binance.Messages
 
         [JsonProperty("s")]
         public string Symbol { get; set; }
+
+        public static BaseMessage Parse(string data)
+        {
+            var wrapped = JObject.Parse(data);
+            var eventType = wrapped["data"]["e"].ToObject<string>();
+            switch (eventType)
+            {
+                case "executionReport":
+                    return wrapped.GetValue("data").ToObject<Messages.Execution>();
+                case "depthUpdate":
+                    return wrapped.GetValue("data").ToObject<Messages.OrderBookUpdateMessage>();
+                case "trade":
+                    return wrapped.GetValue("data").ToObject<Messages.Trade>();
+                default:
+                    return null;
+            }
+        }
+
+        public T ToObject<T>() where T : BaseMessage
+        {
+            try
+            {
+                return (T)Convert.ChangeType(this, typeof(T), CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return default(T);
+            }
+        }
+    }
+
+    public class OrderBookUpdateMessage : BaseMessage
+    {
+        public override EventType @Event => EventType.OrderBook;
+
+        [JsonProperty("U")]
+        public long FirstUpdate { get; set; }
+
+        [JsonProperty("u")]
+        public long FinalUpdate { get; set; }
+
+        [JsonProperty("b")]
+        public object[][] Bids { get; set; }
+
+        [JsonProperty("a")]
+        public object[][] Asks { get; set; }
     }
 
     public class Trade : BaseMessage

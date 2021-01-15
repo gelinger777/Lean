@@ -60,6 +60,8 @@ namespace QuantConnect
             Tuple.Create(CME, 23),
             Tuple.Create(SGX, 24),
             Tuple.Create(HKFE, 25),
+            Tuple.Create(BinanceMargin, 26),
+            Tuple.Create(BinanceFutures, 25),
         };
 
         static Market()
@@ -178,6 +180,16 @@ namespace QuantConnect
         /// Binance
         /// </summary>
         public const string Binance = "binance";
+
+        /// <summary>
+        /// Binance Margin
+        /// </summary>
+        public const string BinanceMargin = "binancemargin";
+
+        /// <summary>
+        /// Binance Futures
+        /// </summary>
+        public const string BinanceFutures = "binancefutures";
 
         /// <summary>
         /// Poloniex

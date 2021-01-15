@@ -14,6 +14,8 @@
 */
 
 using QuantConnect.Orders;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace QuantConnect.Brokerages.Binance
 {
@@ -49,5 +51,32 @@ namespace QuantConnect.Brokerages.Binance
                     return OrderStatus.None;
             }
         }
+        private Holding ConvertHolding(IOrderedEnumerable<Messages.TradeList> trades)
+        {
+            if (trades.Count() == 0)
+                return new Holding();
+
+            var symbol = trades.FirstOrDefault().Symbol;
+            var qty = 0m;
+            var avgPrice = 0m;
+            foreach (var trade in trades)
+            {
+                if (!trade.IsBuyer)
+                    break;
+                avgPrice = (avgPrice * qty + trade.Price * trade.Qty) / (qty + trade.Qty);
+                qty += trade.Qty;
+            }
+            var holding = new Holding
+            {
+                Symbol = _symbolMapper.GetLeanSymbol(symbol, SecurityType.Crypto, Market.Binance),
+                AveragePrice = avgPrice,
+                Quantity = qty,
+                CurrencySymbol = "$",
+                Type = SecurityType.Crypto,
+            };
+
+            return holding;
+        }
+
     }
 }

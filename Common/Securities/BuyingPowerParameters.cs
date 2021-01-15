@@ -37,17 +37,20 @@ namespace QuantConnect.Securities
         /// </summary>
         public OrderDirection Direction { get; }
 
+        public decimal Price { get; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="BuyingPowerParameters"/> class
         /// </summary>
         /// <param name="portfolio">The algorithm's portfolio</param>
         /// <param name="security">The security</param>
         /// <param name="direction">The direction to compute buying power in</param>
-        public BuyingPowerParameters(SecurityPortfolioManager portfolio, Security security, OrderDirection direction)
+        public BuyingPowerParameters(SecurityPortfolioManager portfolio, Security security, OrderDirection direction, decimal price = 0m)
         {
             Portfolio = portfolio;
             Security = security;
             Direction = direction;
+            Price = price;
         }
 
         /// <summary>

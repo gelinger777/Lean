@@ -72,12 +72,16 @@ namespace QuantConnect.Messaging
         public void SendNotification(Notification notification)
         {
             var type = notification.GetType();
-            if (type == typeof(NotificationEmail) || type == typeof(NotificationWeb) || type == typeof(NotificationSms))
+            if (type == typeof(NotificationEmail))
+            {
+                notification.Send((NotificationEmail)notification);
+            }
+            else if (type == typeof(NotificationWeb)
+             || type == typeof(NotificationSms))
             {
                 Log.Error("Messaging.SendNotification(): Send not implemented for notification of type: " + type.Name);
                 return;
             }
-            notification.Send();
         }
 
         /// <summary>
@@ -85,7 +89,14 @@ namespace QuantConnect.Messaging
         /// </summary>
         public void Send(Packet packet)
         {
-           Transmit(packet);
+            if (packet.Type == PacketType.RuntimeError)
+            {
+                var runtime = (RuntimeErrorPacket)packet;
+                var rstack = (!string.IsNullOrEmpty(runtime.StackTrace) ? (Environment.NewLine + " " + runtime.StackTrace) : string.Empty);
+                SendNotification(new NotificationEmail("chrisholley23@gmail.com", "Live Runtime Error", runtime.Message + rstack));
+            }
+
+            Transmit(packet);
         }
 
         /// <summary>

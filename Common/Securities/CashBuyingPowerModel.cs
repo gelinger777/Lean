@@ -329,7 +329,7 @@ namespace QuantConnect.Securities
 
             // determine the unit price in terms of the quote currency
             var utcTime = parameters.Security.LocalTime.ConvertToUtc(parameters.Security.Exchange.TimeZone);
-            var unitPrice = new MarketOrder(security.Symbol, 1, utcTime).GetValue(security) / security.QuoteCurrency.ConversionRate;
+            var unitPrice = parameters.Price == 0 ? new MarketOrder(security.Symbol, 1, utcTime).GetValue(security) / security.QuoteCurrency.ConversionRate : parameters.Price;
             if (unitPrice == 0)
             {
                 return parameters.ResultInAccountCurrency(0m);

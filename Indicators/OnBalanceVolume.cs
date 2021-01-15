@@ -14,6 +14,8 @@
 */
 
 using QuantConnect.Data.Market;
+using System;
+using System.Linq;
 
 namespace QuantConnect.Indicators
 {
@@ -27,28 +29,34 @@ namespace QuantConnect.Indicators
     public class OnBalanceVolume : TradeBarIndicator, IIndicatorWarmUpPeriodProvider
     {
         private TradeBar _previousInput;
+        private static int _length;
+        private RollingWindow<decimal> _obvHistory;
 
         /// <summary>
         /// Initializes a new instance of the Indicator class using the specified name.
         /// </summary> 
-        public OnBalanceVolume()
+        public OnBalanceVolume(int length)
             : base("OBV")
         {
+            _length = length;
+            _obvHistory = new RollingWindow<decimal>(_length);
         }
 
         /// <summary>
         /// Initializes a new instance of the Indicator class using the specified name.
         /// </summary> 
         /// <param name="name">The name of this indicator</param>
-        public OnBalanceVolume(string name)
+        public OnBalanceVolume(string name, int length)
             : base(name)
         {
+            _length = length;
+            _obvHistory = new RollingWindow<decimal>(_length);
         }
 
         /// <summary>
         /// Gets a flag indicating when this indicator is ready and fully initialized
         /// </summary>
-        public override bool IsReady => _previousInput != null;
+        public override bool IsReady => _previousInput != null && _obvHistory.Count == _length;
 
         /// <summary>
         /// Required period, in data points, for the indicator to be ready and fully initialized.
@@ -63,6 +71,7 @@ namespace QuantConnect.Indicators
         protected override decimal ComputeNextValue(TradeBar input)
         {
             var obv = Current.Value;
+            _obvHistory.Add(obv);
 
             if (_previousInput != null)
             {
@@ -86,6 +95,9 @@ namespace QuantConnect.Indicators
             _previousInput = input;
             return obv;
         }
+
+        public decimal ChannelHigh => _obvHistory.Max();
+        public decimal ChannelLow => _obvHistory.Min();
 
         /// <summary>
         /// Resets this indicator to its initial state

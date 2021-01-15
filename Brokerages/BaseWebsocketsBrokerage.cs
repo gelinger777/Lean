@@ -146,5 +146,39 @@ namespace QuantConnect.Brokerages
             }
             WebSocket.Open -= triggerEvent;
         }
+
+        /// <summary>
+        /// Handles websocket errors
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void OnError(object sender, WebSocketError e)
+        {
+            Log.Error(e.Exception, "WebSocketsBrokerage Web Exception:  ");
+        }
+
+        /// <summary>
+        /// Releases the lock of current thread until state
+        /// </summary>
+        /// <param name="state"></param>
+        protected void Wait(Func<bool> state)
+        {
+            Wait(ConnectionTimeout, state);
+        }
+
+        private void Wait(int timeout, Func<bool> state)
+        {
+            var StartTime = Environment.TickCount;
+            do
+            {
+                if (Environment.TickCount > StartTime + timeout)
+                {
+                    throw new Exception("Websockets connection timeout.");
+                }
+                Thread.Sleep(1);
+            }
+            while (!state());
+        }
+
     }
 }

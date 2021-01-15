@@ -45,6 +45,14 @@ namespace QuantConnect.Brokerages.Binance
         private readonly RateGate _restRateLimiter = new RateGate(10, TimeSpan.FromSeconds(1));
         private readonly object _listenKeyLocker = new object();
 
+        private readonly bool autoTimestamp = true;
+        private readonly TimeSpan autoTimestampRecalculationInterval = TimeSpan.FromHours(3);
+        private readonly TimeSpan timestampOffset = TimeSpan.Zero;
+        private double calculatedTimeOffset;
+        private bool timeSynced;
+        private DateTime lastTimeSync;
+        private int TotalRequestsMade = 1;
+
         /// <summary>
         /// Event that fires each time an order is filled
         /// </summary>
@@ -96,33 +104,83 @@ namespace QuantConnect.Brokerages.Binance
             ApiSecret = apiSecret;
         }
 
+        private Dictionary<string, Messages.TradeList[]> _tradesDictionary;
         /// <summary>
         /// Gets all open positions
         /// </summary>
         /// <returns></returns>
-        public List<Holding> GetAccountHoldings()
+        public Dictionary<string, Messages.TradeList[]> GetAccountHoldings()
         {
-            return new List<Holding>();
+            SetAccountTrades();
+            return _tradesDictionary;
         }
 
+        public void SetAccountTrades()
+        {
+            if (_startupAccountInfo != null)
+            {
+                _tradesDictionary = new Dictionary<string, Messages.TradeList[]>();
+                foreach (var bal in _startupAccountInfo.Balances.Where(x => x.Asset != "BTC" && x.Amount != 0))
+                {
+                    var timestampResult = CheckAutoTimestamp();
+                    var symbol = bal.Asset + "BTC";
+
+                    IDictionary<string, object> body = new Dictionary<string, object>()
+                    {
+                        { "symbol", symbol }
+                    };
+
+                    var queryString = $"symbol={symbol}&timestamp={GetNonce()}";
+                    var endpoint = $"/api/v3/myTrades?{queryString}&signature={AuthenticationToken(queryString)}";
+                    var request = new RestRequest(endpoint, Method.GET);
+                    request.AddHeader(KeyHeader, ApiKey);
+                    var response = ExecuteRestRequest(request);
+                    if (response.StatusCode != HttpStatusCode.OK && response.Content.Contains("-1021"))
+                    {
+                        GetServerTime(true);
+                        response = ExecuteRestRequest(request);
+                    }
+                    if (response.StatusCode == HttpStatusCode.OK)
+                    {
+                        if (_tradesDictionary.ContainsKey(symbol))
+                            _tradesDictionary[symbol] = JsonConvert.DeserializeObject<Messages.TradeList[]>(response.Content);
+                        else
+                            _tradesDictionary.Add(symbol, JsonConvert.DeserializeObject<Messages.TradeList[]>(response.Content));
+                    }
+                }
+            }
+        }
+
+        private Messages.AccountInformation _startupAccountInfo;
         /// <summary>
         /// Gets the total account cash balance for specified account type
         /// </summary>
         /// <returns></returns>
-        public Messages.AccountInformation GetCashBalance()
+        public Messages.AccountInformation GetCashBalance(Interfaces.IAlgorithm algorithm = null)
         {
+            var timestampResult = CheckAutoTimestamp();
+
             var queryString = $"timestamp={GetNonce()}";
             var endpoint = $"/api/v3/account?{queryString}&signature={AuthenticationToken(queryString)}";
             var request = new RestRequest(endpoint, Method.GET);
             request.AddHeader(KeyHeader, ApiKey);
 
             var response = ExecuteRestRequest(request);
+            if (response.StatusCode != HttpStatusCode.OK && response.Content.Contains("-1021"))
+            {
+                GetServerTime(true);
+                response = ExecuteRestRequest(request);
+            }
             if (response.StatusCode != HttpStatusCode.OK)
             {
-                throw new Exception($"BinanceBrokerage.GetCashBalance: request failed: [{(int)response.StatusCode}] {response.StatusDescription}, Content: {response.Content}, ErrorMessage: {response.ErrorMessage}");
+                if (algorithm == null)
+                    throw new Exception($"BinanceBrokerage.GetCashBalance: request failed: [{(int)response.StatusCode}] {response.StatusDescription}, Content: {response.Content}, ErrorMessage: {response.ErrorMessage}");
+                else
+                    return null;
             }
 
-            return JsonConvert.DeserializeObject<Messages.AccountInformation>(response.Content);
+            _startupAccountInfo = JsonConvert.DeserializeObject<Messages.AccountInformation>(response.Content);
+            return _startupAccountInfo;
         }
 
         /// <summary>
@@ -131,12 +189,26 @@ namespace QuantConnect.Brokerages.Binance
         /// <returns></returns>
         public IEnumerable<Messages.OpenOrder> GetOpenOrders()
         {
+            var timestampResult = CheckAutoTimestamp();
+
             var queryString = $"timestamp={GetNonce()}";
             var endpoint = $"/api/v3/openOrders?{queryString}&signature={AuthenticationToken(queryString)}";
             var request = new RestRequest(endpoint, Method.GET);
             request.AddHeader(KeyHeader, ApiKey);
 
             var response = ExecuteRestRequest(request);
+
+            if (response.StatusCode != HttpStatusCode.OK && response.Content.Contains("-1021"))
+            {
+                GetServerTime(true);
+                response = ExecuteRestRequest(request);
+            }
+            if (response.StatusCode != HttpStatusCode.OK &&
+                (response.Content.Contains("-1021") || response.Content.Contains("-3008")))
+            {
+                GetServerTime(true);
+                response = ExecuteRestRequest(request);
+            }
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 throw new Exception($"BinanceBrokerage.GetCashBalance: request failed: [{(int)response.StatusCode}] {response.StatusDescription}, Content: {response.Content}, ErrorMessage: {response.ErrorMessage}");
@@ -154,6 +226,10 @@ namespace QuantConnect.Brokerages.Binance
         {
             // supported time in force values {GTC, IOC, FOK}
             // use GTC as LEAN doesn't support others yet
+            var timestampResult = CheckAutoTimestamp();
+            if (timestampResult == null)
+                return false;
+
             IDictionary<string, object> body = new Dictionary<string, object>()
             {
                 { "symbol", _symbolMapper.GetBrokerageSymbol(order.Symbol) },
@@ -206,6 +282,12 @@ namespace QuantConnect.Brokerages.Binance
             );
 
             var response = ExecuteRestRequest(request);
+            if (response.StatusCode != HttpStatusCode.OK &&
+                (response.Content.Contains("-1021") || response.Content.Contains("-3008")))
+            {
+                GetServerTime(true);
+                response = ExecuteRestRequest(request);
+            }
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 var raw = JsonConvert.DeserializeObject<Messages.NewOrder>(response.Content);
@@ -248,6 +330,10 @@ namespace QuantConnect.Brokerages.Binance
         public bool CancelOrder(Order order)
         {
             var success = new List<bool>();
+            var timestampResult = CheckAutoTimestamp();
+            if (timestampResult == null)
+                return false;
+
             IDictionary<string, object> body = new Dictionary<string, object>()
             {
                 { "symbol", _symbolMapper.GetBrokerageSymbol(order.Symbol) }
@@ -271,6 +357,12 @@ namespace QuantConnect.Brokerages.Binance
                 );
 
                 var response = ExecuteRestRequest(request);
+                if (response.StatusCode != HttpStatusCode.OK &&
+                    (response.Content.Contains("-1021") || response.Content.Contains("-3008")))
+                {
+                    GetServerTime(true);
+                    response = ExecuteRestRequest(request);
+                }
                 success.Add(response.StatusCode == HttpStatusCode.OK);
             }
 
@@ -317,14 +409,21 @@ namespace QuantConnect.Brokerages.Binance
                 var klines = JsonConvert.DeserializeObject<object[][]>(response.Content)
                     .Select(entries => new Messages.Kline(entries))
                     .ToList();
-
-                startMs = klines.Last().OpenTime + resolutionInMs;
-
+                try
+                {
+                    startMs = klines.Last().OpenTime + resolutionInMs;
+                }
+                catch(Exception e)
+                {
+                    Log.Error(e, $"BinanceResApiClint.GetHistory(): Failed on security {symbol}, startTime = {request.StartTimeUtc}, endTime = {request.EndTimeUtc}");
+                }
                 foreach (var kline in klines)
                 {
                     yield return kline;
                 }
+
             }
+
         }
 
         /// <summary>
@@ -469,7 +568,86 @@ namespace QuantConnect.Brokerages.Binance
         /// <returns></returns>
         private long GetNonce()
         {
-            return (long)(Time.TimeStamp() * 1000);
+            var offset = autoTimestamp ? calculatedTimeOffset : 0;
+            offset += timestampOffset.TotalMilliseconds;
+            return ToUnixTimestamp(DateTime.UtcNow.AddMilliseconds(offset));
+        }
+        private static long ToUnixTimestamp(DateTime time)
+        {
+            return (long)(time - new DateTime(1970, 1, 1)).TotalMilliseconds;
+        }
+
+        private DateTime CheckAutoTimestamp()
+        {
+            if (autoTimestamp && (!timeSynced || DateTime.UtcNow - lastTimeSync > autoTimestampRecalculationInterval))
+                return GetServerTime(timeSynced);
+
+            return DateTime.UtcNow + timestampOffset;
+        }
+
+        /// <summary>
+        /// Requests the server for the local time. This function also determines the offset between server and local time and uses this for subsequent API calls
+        /// </summary>
+        /// <param name="resetAutoTimestamp">Whether the response should be used for a new auto timestamp calculation</param>
+        /// <returns>Server time</returns>
+        public DateTime GetServerTime(bool resetAutoTimestamp = false)
+        {
+            var endpoint = $"/fapi/v1/time";
+            var request = new RestRequest(endpoint, Method.GET);
+            request.AddHeader(KeyHeader, ApiKey);
+
+            if (!autoTimestamp)
+            {
+                var response = ExecuteRestRequest(request);
+                var result = JsonConvert.DeserializeObject<BinanceFutures.Messages.BinanceCheckTime>(response.Content);
+                if (!response.IsSuccessful)
+                    return DateTime.UtcNow + timestampOffset;
+
+                return result.ServerTime;
+            }
+            else
+            {
+                var localTime = DateTime.UtcNow;
+                var response = ExecuteRestRequest(request);
+                if (!response.IsSuccessful)
+                    return DateTime.UtcNow + timestampOffset;
+
+                var result = JsonConvert.DeserializeObject<BinanceFutures.Messages.BinanceCheckTime>(response.Content);
+
+                if (timeSynced && !resetAutoTimestamp)
+                    return result.ServerTime;
+
+                if (TotalRequestsMade == 1)
+                {
+                    // If this was the first request make another one to calculate the offset since the first one can be slower
+                    localTime = DateTime.UtcNow;
+                    response = ExecuteRestRequest(request);
+                    if (!response.IsSuccessful)
+                        return DateTime.UtcNow + timestampOffset;
+                    result = JsonConvert.DeserializeObject<BinanceFutures.Messages.BinanceCheckTime>(response.Content);
+                    TotalRequestsMade++;
+                }
+
+                // Calculate time offset between local and server
+                var offset = (result.ServerTime - localTime).TotalMilliseconds;
+                if (offset >= 0 && offset < 500)
+                {
+                    // Small offset, probably mainly due to ping. Don't adjust time
+                    calculatedTimeOffset = 0;
+                    timeSynced = true;
+                    lastTimeSync = DateTime.UtcNow;
+                    Log.Trace("Brokerage.GetServerTime(): " + new BrokerageMessageEvent(BrokerageMessageType.Information, "0",
+                        $"Time offset between 0 and 500ms ({offset}ms), no adjustment needed"));
+                    return result.ServerTime;
+                }
+
+                calculatedTimeOffset = (result.ServerTime - localTime).TotalMilliseconds;
+                timeSynced = true;
+                lastTimeSync = DateTime.UtcNow;
+                Log.Trace("Brokerage.GetServerTime(): " + new BrokerageMessageEvent(BrokerageMessageType.Information, "0",
+                    $"Time offset set to {calculatedTimeOffset}ms"));
+                return result.ServerTime;
+            }
         }
 
         /// <summary>

@@ -135,6 +135,61 @@ namespace QuantConnect.Brokerages.Binance
             }
         }
 
+        private void OnMessageImpl(object sender, WebSocketMessage e, Action<BaseMessage> handler)
+        {
+            try
+            {
+                var msg = Messages.BaseMessage.Parse(e.Message);
+                if (msg != null)
+                {
+                    handler(msg);
+                }
+            }
+            catch (Exception exception)
+            {
+                OnMessage(new BrokerageMessageEvent(BrokerageMessageType.Error, -1, $"Parsing wss message failed. Data: {e.Message} Exception: {exception}"));
+                throw;
+            }
+        }
+
+        private void OnUserMessageImpl(BaseMessage message)
+        {
+            switch (message.Event)
+            {
+                case EventType.Execution:
+                    var upd = message.ToObject<Messages.Execution>();
+                    if (upd.ExecutionType.Equals("TRADE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        OnFillOrder(upd);
+                    }
+                    break;
+                default:
+                    return;
+            }
+        }
+
+        private void OnStreamMessageImpl(BaseMessage message)
+        {
+            switch (message.Event)
+            {
+                case EventType.OrderBook:
+                    var updates = message.ToObject<Messages.OrderBookUpdateMessage>();
+                    //OnOrderBookUpdate(updates);
+                    break;
+                case EventType.Trade:
+                    var trade = message.ToObject<Messages.Trade>();
+                    EmitTradeTick(
+                        _symbolMapper.GetLeanSymbol(trade.Symbol, SecurityType.Crypto, Market.Binance),
+                        Time.UnixMillisecondTimeStampToDateTime(trade.Time),
+                        trade.Price,
+                        trade.Quantity
+                    );
+                    break;
+                default:
+                    return;
+            }
+        }
+
         private void EmitQuoteTick(Symbol symbol, decimal bidPrice, decimal bidSize, decimal askPrice, decimal askSize)
         {
             var tick = new Tick

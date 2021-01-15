@@ -247,6 +247,132 @@ namespace QuantConnect.Algorithm
         }
 
         /// <summary>
+        /// Market order implementation: Send a market order and wait for it to be filled.
+        /// </summary>
+        /// <param name="symbol">Symbol of the MarketType Required.</param>
+        /// <param name="quantity">Number of shares to request.</param>
+        /// <param name="asynchronous">Send the order asynchrously (false). Otherwise we'll block until it fills</param>
+        /// <param name="tag">Place a custom order property or tag (e.g. indicator data).</param>
+        /// <returns>int Order id</returns>
+        public OrderTicket BinanceMarginMarketOrder(Symbol symbol, decimal quantity, BinanceMarginOrderProperties binanceProperties = null, bool asynchronous = false, string tag = "")
+        {
+            var security = Securities[symbol];
+
+            // check the exchange is open before sending a market order, if it's not open
+            // then convert it into a market on open order
+            if (!security.Exchange.ExchangeOpen)
+            {
+                var mooTicket = MarketOnOpenOrder(security.Symbol, quantity, tag);
+                if (!_isMarketOnOpenOrderWarningSent)
+                {
+                    var anyNonDailySubscriptions = security.Subscriptions.Any(x => x.Resolution != Resolution.Daily);
+                    if (mooTicket.SubmitRequest.Response.IsSuccess && !anyNonDailySubscriptions)
+                    {
+                        Debug("Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.");
+                        _isMarketOnOpenOrderWarningSent = true;
+                    }
+                }
+                return mooTicket;
+            }
+            if (binanceProperties == null)
+            {
+                binanceProperties = new BinanceMarginOrderProperties();
+                binanceProperties.PostOnly = false;
+                binanceProperties.AutoBorrow = true;
+                binanceProperties.AutoRepay = false;
+            }
+
+            var request = CreateSubmitOrderRequest(OrderType.Market, security, quantity, tag, binanceProperties);
+
+            // If warming up, do not submit
+            if (IsWarmingUp)
+            {
+                return OrderTicket.InvalidWarmingUp(Transactions, request);
+            }
+
+            //Initialize the Market order parameters:
+            var preOrderCheckResponse = PreOrderChecks(request);
+            if (preOrderCheckResponse.IsError)
+            {
+                return OrderTicket.InvalidSubmitRequest(Transactions, request, preOrderCheckResponse);
+            }
+
+            //Add the order and create a new order Id.
+            var ticket = Transactions.AddOrder(request);
+
+            // Wait for the order event to process, only if the exchange is open
+            if (!asynchronous)
+            {
+                Transactions.WaitForOrder(ticket.OrderId);
+            }
+
+            return ticket;
+        }
+
+        /// <summary>
+        /// Market order implementation: Send a market order and wait for it to be filled.
+        /// </summary>
+        /// <param name="symbol">Symbol of the MarketType Required.</param>
+        /// <param name="quantity">Number of shares to request.</param>
+        /// <param name="binanceProperties">Create a new instance of BinanceOrderProperties.</param>
+        /// <param name="asynchronous">Send the order asynchrously (false). Otherwise we'll block until it fills</param>
+        /// <param name="tag">Place a custom order property or tag (e.g. indicator data).</param>
+        /// <returns>int Order id</returns>
+        public OrderTicket BinanceFuturesMarketOrder(Symbol symbol, decimal quantity, BinanceFuturesOrderProperties binanceProperties = null, bool asynchronous = false, string tag = "")
+        {
+            var security = Securities[symbol];
+
+            // check the exchange is open before sending a market order, if it's not open
+            // then convert it into a market on open order
+            if (!security.Exchange.ExchangeOpen)
+            {
+                var mooTicket = MarketOnOpenOrder(security.Symbol, quantity, tag);
+                if (!_isMarketOnOpenOrderWarningSent)
+                {
+                    var anyNonDailySubscriptions = security.Subscriptions.Any(x => x.Resolution != Resolution.Daily);
+                    if (mooTicket.SubmitRequest.Response.IsSuccess && !anyNonDailySubscriptions)
+                    {
+                        Debug("Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.");
+                        _isMarketOnOpenOrderWarningSent = true;
+                    }
+                }
+                return mooTicket;
+            }
+            if (binanceProperties == null)
+            {
+                binanceProperties = new BinanceFuturesOrderProperties();
+                binanceProperties.PostOnly = false;
+                binanceProperties.ReduceOnly = false;
+            }
+
+            var request = CreateSubmitOrderRequest(OrderType.Market, security, quantity, tag, binanceProperties);
+
+            // If warming up, do not submit
+            if (IsWarmingUp)
+            {
+                return OrderTicket.InvalidWarmingUp(Transactions, request);
+            }
+
+            //Initialize the Market order parameters:
+            var preOrderCheckResponse = PreOrderChecks(request);
+            if (preOrderCheckResponse.IsError)
+            {
+                return OrderTicket.InvalidSubmitRequest(Transactions, request, preOrderCheckResponse);
+            }
+
+            //Add the order and create a new order Id.
+            var ticket = Transactions.AddOrder(request);
+
+            // Wait for the order event to process, only if the exchange is open
+            if (!asynchronous)
+            {
+                Transactions.WaitForOrder(ticket.OrderId);
+            }
+
+            return ticket;
+        }
+
+        /// <summary>
         /// Market on open order implementation: Send a market order when the exchange opens
         /// </summary>
         /// <param name="symbol">The symbol to be ordered</param>
@@ -372,6 +498,36 @@ namespace QuantConnect.Algorithm
         {
             var security = Securities[symbol];
             var request = CreateSubmitOrderRequest(OrderType.Limit, security, quantity, tag, limitPrice: limitPrice, properties: DefaultOrderProperties?.Clone());
+            var response = PreOrderChecks(request);
+            if (response.IsError)
+            {
+                return OrderTicket.InvalidSubmitRequest(Transactions, request, response);
+            }
+
+            return Transactions.AddOrder(request);
+        }
+
+        /// <summary>
+        /// Limit order implementation: Send a market order and wait for it to be filled.
+        /// </summary>
+        /// <param name="symbol">Symbol of the MarketType Required.</param>
+        /// <param name="quantity">Number of shares to request.</param>
+        /// <param name="binanceProperties">Create a new instance of BinanceOrderProperties.</param>
+        /// <param name="asynchronous">Send the order asynchrously (false). Otherwise we'll block until it fills</param>
+        /// <param name="tag">Place a custom order property or tag (e.g. indicator data).</param>
+        /// <returns>int Order id</returns>
+        public OrderTicket BinanceFuturesLimitOrder(Symbol symbol, decimal quantity, decimal limitPrice, BinanceFuturesOrderProperties binanceProperties = null, string tag = "")
+        {
+            var security = Securities[symbol];
+
+            if (binanceProperties == null)
+            {
+                binanceProperties = new BinanceFuturesOrderProperties();
+                binanceProperties.PostOnly = false;
+                binanceProperties.ReduceOnly = false;
+            }
+
+            var request = CreateSubmitOrderRequest(OrderType.Limit, security, quantity, tag, limitPrice: limitPrice, properties: binanceProperties);
             var response = PreOrderChecks(request);
             if (response.IsError)
             {

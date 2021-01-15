@@ -6,10 +6,20 @@
   // two predefined environments, 'backtesting' and 'live', feel free
   // to add more!
 
-  "environment": "backtesting", // "live-paper", "backtesting", "live-interactive", "live-interactive-iqfeed"
+  "environment": "live-binance", // "live-paper", "backtesting", "live-interactive", "live-interactive-iqfeed, live-binancefutures"
+  "currentEmail": "christopherjholley23", // chrisholley23, christopherjholley23, fjennings, emily
+  "customerAccount": false,
+  "BtcDipPurchaseOnly": false,
+  "MarketStateAudit": false, // true for FuturesAlgorithm
+  "CoinFuturesAudit": false,
+  "CoinFuturesOffExchangeValue": 26268,
+  "MaxNeutralValue": 0,
+  "BtcCoinTarget": 0.278993,
+  "profitPercent": 0.5,
+  "ExpectancyLoadTime": 27,
 
   // algorithm class selector
-  "algorithm-type-name": "BasicTemplateFrameworkAlgorithm",
+  "algorithm-type-name": "DonchianCryptoSpotAlgorithm", //DonchianCryptoFuturesAlgorithm, LogReturnActiveStrategy, DonchianCryptoMarketStateAudit, DonchianCryptoExpectancyAudit, DonchianCryptoSpotAlgorithm
 
   // Algorithm language selector - options CSharp, Python
   "algorithm-language": "CSharp",
@@ -23,6 +33,8 @@
 
   // engine
   "data-folder": "../../../Data/",
+  "object-store-root": "../../../Data/storage",
+  "results-destination-folder": "../../../Data/LiveResults",
 
   // debugging configuration - options for debugging-method LocalCmdLine, VisualStudio, PTVSD, PyCharm
   "debugging": false,
@@ -112,9 +124,22 @@
   "bitfinex-api-secret": "",
   "bitfinex-api-key": "",
 
-    // binance configuration
-  "binance-api-secret": "",
-  "binance-api-key": "",
+  // binance configuration
+  "binance-api-secret": "nuWis8Pz4lBsTggO0keKojffHE2xCq5f35hpyEmeGpxemCW077c6Grk6BEEv1jI5",
+  "binance-api-key": "jaA2n9pCaK4qTOvlu4dj4rE1J7o1IWsoWU3oFNdIN3PXLWcX1JFTkp4o2J24OOOQ",
+
+  // binance Futures configuration
+  "chrisholley23-api-secret": "ZsvItnLeVFUTDGoHJCcSi8oFLzp99EZs8ecFQPJjhwP6p1hmLl55731aG3KgRKzH",
+  "chrisholley23-api-key": "OVB7aQtXHpxnt1c5HEyuLQ9dWO5ZaFaa9A0pONofWQ36iH9KMkFHK9PMKULuDgN5",
+
+  "christopherjholley23-api-secret": "nuWis8Pz4lBsTggO0keKojffHE2xCq5f35hpyEmeGpxemCW077c6Grk6BEEv1jI5",
+  "christopherjholley23-api-key": "jaA2n9pCaK4qTOvlu4dj4rE1J7o1IWsoWU3oFNdIN3PXLWcX1JFTkp4o2J24OOOQ",
+
+  "fjennings-api-secret": "sJQWYTSZE1tQrTFb1wY240rs5k1h0soj3dVIuUzcCsMCtG5jLcLIUl213sAbbR5o",
+  "fjennings-api-key": "ecJuNPicUUszuqpgY6ImUUjzdJbQdPmjLCVqdHxgyErl8hK7NGRBYSUcePhGgoFi",
+
+  "emily-api-secret": "728pdMUV1doUUVlIdA9XKQdnptqtus4mIgASTqJQnsuykmAfDuATqWWnNCzmFWeG",
+  "emily-api-key": "5dXS0tO4owlQGvTOXyaTSmS5BQl6x1RYLyCSvDT2Z78ydEU0p7hXudSxNZOWI9pR",
 
   // Required to access data from Quiver Quantitative
   // To get your access token go to https://api.quiverquant.com
@@ -154,6 +179,44 @@
     "ema-fast": 10,
     "ema-slow": 20
   },
+
+  "chrisholley23-IBAccountBalance": -23,
+  "fjennings-IBAccountBalance": 36350,
+  "christopherjholley23-IBAccountBalance": 2400,
+  "emily-IBAccountBalance": -23,
+
+  "medianExpectancy": false,
+  "tradeLimit": false,
+  "adjustSizeTradeLimit": false,
+  "volTrigger": true, //true
+  "adjustSizeVolTrigger": false,
+  "adjustSizeDollarVolume": false,
+  "hardLossLimit": true,
+  "hardLossPercent": 0.02,
+  "oppoTrades": true,
+  "oppoSizeAdjust": true,
+  "adjustVWAP": false,
+  "adjustVWAPType": "ATRonOpen", //Entry Adjust Only, Week start, Extreme Distance only
+
+  "stopMult": 3,
+  "risk": 0.04,
+  "UpMoveReduction": 0.175,
+  "DrawdownReduction": -0.04,
+  "forestPredictions": false,
+  "forestAdjustment": 0.02,
+  "maxPortExposure": 1,
+  "decreasingRisk": false,
+  "decreasingType": "Drawdown", //Drawdown, AccountSize
+  "drawDownRiskReduction": 0.05,
+  "reduceMaxPositions": true,
+  "reEnterReducedPositions": true,
+
+  "volOnVWAP": true,
+  "volOnVWAPType": "Straight", // Straight, StopMult, Sqrt
+
+  "atrPeriod": 30,
+  "dchPeriod": 15,
+  "ExpectancyAudit": false,
 
   "environments": {
 
@@ -297,6 +360,20 @@
       // real brokerage implementations require the BrokerageTransactionHandler
       "live-mode-brokerage": "BinanceBrokerage",
       "data-queue-handler": "BinanceBrokerage",
+      "setup-handler": "QuantConnect.Lean.Engine.Setup.BrokerageSetupHandler",
+      "result-handler": "QuantConnect.Lean.Engine.Results.LiveTradingResultHandler",
+      "data-feed-handler": "QuantConnect.Lean.Engine.DataFeeds.LiveTradingDataFeed",
+      "real-time-handler": "QuantConnect.Lean.Engine.RealTime.LiveTradingRealTimeHandler",
+      "transaction-handler": "QuantConnect.Lean.Engine.TransactionHandlers.BrokerageTransactionHandler",
+      "history-provider": "BrokerageHistoryProvider"
+    },
+
+    "live-binancefutures": {
+      "live-mode": true,
+
+      // real brokerage implementations require the BrokerageTransactionHandler
+      "live-mode-brokerage": "BinanceFuturesBrokerage",
+      "data-queue-handler": "BinanceFuturesBrokerage",
       "setup-handler": "QuantConnect.Lean.Engine.Setup.BrokerageSetupHandler",
       "result-handler": "QuantConnect.Lean.Engine.Results.LiveTradingResultHandler",
       "data-feed-handler": "QuantConnect.Lean.Engine.DataFeeds.LiveTradingDataFeed",
