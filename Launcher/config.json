@@ -192,7 +192,7 @@
   "adjustSizeVolTrigger": false,
   "adjustSizeDollarVolume": false,
   "hardLossLimit": true,
-  "hardLossPercent": 0.02,
+  "hardLossPercent": 0.01,
   "oppoTrades": true,
   "oppoSizeAdjust": true,
   "adjustVWAP": false,

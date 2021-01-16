@@ -113,16 +113,18 @@ namespace QuantConnect.Algorithm.CSharp
         public override void Initialize()
         {
             SetBrokerageModel(BrokerageName.BinanceFutures);
-            SetStartDate(2018, 1, 1);
-            SetEndDate(2020, 4, 20);
+            SetStartDate(2020, 1, 1);
+            SetEndDate(DateTime.UtcNow.AddDays(-1));
 
             SetAccountCurrency("USDT");
             SetCash(startingequity);
-            ExpectancyAudit = Config.GetValue("ExpectancyAudit", ExpectancyAudit); 
+            ExpectancyAudit = Config.GetValue("ExpectancyAudit", ExpectancyAudit);
             MarketStateAudit = Config.GetValue("MarketStateAudit", MarketStateAudit);
             CoinFuturesAudit = Config.GetValue("CoinFuturesAudit", CoinFuturesAudit);
-            //SetWarmUp(TimeSpan.FromDays(Config.GetValue("ExpectancyAudit", ExpectancyAudit) ? 260 : 18));
-            SetWarmUp(TimeSpan.FromDays(ExpectancyAudit ? 260 : (CoinFuturesAudit ? 18 : 12)));
+            if (LiveMode)
+                SetWarmUp(TimeSpan.FromDays(ExpectancyAudit ? 260 : (CoinFuturesAudit ? 18 : 12)));
+            else
+                SetWarmUp(260);
             forest = new RandomForest(LiveMode ? MarketStateAudit : false);
 
             InitializeVariablesFromConfig();
@@ -191,7 +193,7 @@ namespace QuantConnect.Algorithm.CSharp
                 Log(e.Message);
             }
 
-            if (!ExpectancyAudit)
+            if (!ExpectancyAudit && LiveMode)
             {
                 if (CheckSheetsForAudit())
                     ProcessSheetsExpectancyData(_expectancyData);
@@ -223,8 +225,8 @@ namespace QuantConnect.Algorithm.CSharp
                     {
                         forest.LoadMarketState(this, Time);
                     }
-                    else 
-                    { 
+                    else
+                    {
                         try
                         {
                             if (LiveMode)
@@ -268,7 +270,7 @@ namespace QuantConnect.Algorithm.CSharp
                 }
 
             });
-            
+
             Schedule.On(DateRules.EveryDay(btc), TimeRules.At(12, ExpectancyLoadTime, NodaTime.DateTimeZone.Utc), () =>
             {
                 if (LiveMode)
@@ -310,7 +312,7 @@ namespace QuantConnect.Algorithm.CSharp
                     RecalculatePortfolioValues();
                     LoadPortfolioValues();
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     Log(e.Message);
                 }
@@ -342,7 +344,7 @@ namespace QuantConnect.Algorithm.CSharp
                     if (CoinFuturesAudit)
                         SetHoldingsToTargetValue(true);
                 }
-                
+
                 var holdingsCount = 0;
                 var holdingsMessage = "";
                 foreach (var security in Securities)
@@ -364,6 +366,7 @@ namespace QuantConnect.Algorithm.CSharp
 
                 GetBinanceHistoricalTransactions(new DateTime(2020, 01, 01), DateTime.UtcNow, false);
             }
+            Startup = false;
         }
 
         public void InitializeSymbolInfo(string index)
@@ -421,20 +424,20 @@ namespace QuantConnect.Algorithm.CSharp
                     SymbolInfo[index].Donchian_FourHour = new DonchianChannel(9, 7);
                     SymbolInfo[index].LogReturn = new LogReturn(1);
                     fourHour.DataConsolidated += (sender, consolidated) =>
+                    {
+                        SymbolInfo[index].LogReturn.Update(consolidated.EndTime, consolidated.Close);
+                        if (CoinFuturesAudit)
                         {
-                            SymbolInfo[index].LogReturn.Update(consolidated.EndTime, consolidated.Close);
-                            if (CoinFuturesAudit)
-                            {
-                                ProcessFourHourData(consolidated);
-                                SetDipPurchases(false, consolidated.Time);
-                            }
+                            ProcessFourHourData(consolidated);
+                            //SetDipPurchases(false, consolidated.Time);
+                        }
 
-                            if (masterAccount)
-                                DipPurchase(consolidated);
-                        };
+                        if (masterAccount)
+                            DipPurchase(consolidated);
+                    };
 
-                        // we need to add this consolidator so it gets auto updates
-                        SubscriptionManager.AddConsolidator(sym, fourHour);
+                    // we need to add this consolidator so it gets auto updates
+                    SubscriptionManager.AddConsolidator(sym, fourHour);
                 }
 
                 Debug("Attempting to add " + index + " to the Algoithim");
@@ -446,7 +449,7 @@ namespace QuantConnect.Algorithm.CSharp
         /// <param name="data">Slice object keyed by symbol containing the stock data</param>
         public void OnData(Slice data)
         {
-            decimal pctChange = Portfolio.TotalUnrealisedProfit / (TotalPortfolioValue);
+            decimal pctChange = Portfolio.TotalUnrealisedProfit / (Portfolio.TotalPortfolioValue);
             if (TotalPortfolioValue > portMax)
                 portMax = TotalPortfolioValue;
             notifyMessage = " New trades made";
@@ -460,24 +463,24 @@ namespace QuantConnect.Algorithm.CSharp
                 switch (decreasingType)
                 {
                     case "AccountSize":
-                        if ((TotalPortfolioValue) > 5000000)
+                        if ((Portfolio.TotalPortfolioValue) > 5000000)
                         {
                             risk = initialRisk / 3;
                         }
-                        else if ((TotalPortfolioValue) > 1000000)
+                        else if ((Portfolio.TotalPortfolioValue) > 1000000)
                         {
-                            risk = initialRisk * 2 / 3 - (1 / 3 * initialRisk * (TotalPortfolioValue) / 5000000);
+                            risk = initialRisk * 2 / 3 - (1 / 3 * initialRisk * (Portfolio.TotalPortfolioValue) / 5000000);
                         }
                         else
                         {
-                            risk = initialRisk - (1 / 3 * initialRisk * (TotalPortfolioValue) / 1000000);
+                            risk = initialRisk - (1 / 3 * initialRisk * (Portfolio.TotalPortfolioValue) / 1000000);
                         }
                         break;
 
                     case "Drawdown":
-                        if (TotalPortfolioValue < (1 - drawDownRiskReduction) * portMax)
+                        if (Portfolio.TotalPortfolioValue < (1 - drawDownRiskReduction) * portMax)
                         {
-                            var subAmt = (TotalPortfolioValue - portMax) / portMax;
+                            var subAmt = (Portfolio.TotalPortfolioValue - portMax) / portMax;
                             risk = initialRisk + drawDownRiskReduction + subAmt;
                         }
                         else
@@ -583,11 +586,11 @@ namespace QuantConnect.Algorithm.CSharp
                 }
                 if (Portfolio[i].Quantity > 0 && SymbolInfo[i].BuyStop == null && !IsWarmingUp)
                 {
-                    SymbolInfo[i].BuyStop = Portfolio[i].AveragePrice - stopMult *  SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].BuyStop = Portfolio[i].AveragePrice - stopMult * SymbolInfo[i].ATR.Current.Value;
                 }
                 else if (Portfolio[i].Quantity < 0 && SymbolInfo[i].SellStop == null && !IsWarmingUp)
                 {
-                    SymbolInfo[i].SellStop = Portfolio[i].AveragePrice + stopMult *  SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].SellStop = Portfolio[i].AveragePrice + stopMult * SymbolInfo[i].ATR.Current.Value;
                 }
                 else if (Portfolio[i].Quantity == 0)
                 {
@@ -605,12 +608,16 @@ namespace QuantConnect.Algorithm.CSharp
             }
         }
 
-        public bool PreTradePortfolioChecksNew(Slice data, string i, decimal pctChange)
+        public bool PreTradePortfolioChecks(Slice data, string i, decimal pctChange)
         {
             try
             {
                 if (!Startup)
                     return true;
+
+                if (data[i].EndTime.Minute == 0 || data[i].EndTime.Minute == 30)
+                    Transactions.CancelOpenOrders();
+
                 if (pctChange < DrawdownReduction && DrawdownReduction < 0)
                 {
                     if (!SymbolInfo[i].BreakerTriggered)
@@ -619,7 +626,101 @@ namespace QuantConnect.Algorithm.CSharp
                         if (Portfolio[i].Invested)
                         {
                             // High Volatility breaker
-                            if (Portfolio[i].UnrealizedProfit < (TotalPortfolioValue) / 100 * risk)
+                            if (Portfolio[i].UnrealizedProfit < (Portfolio.TotalPortfolioValue) / 100 * risk)
+                            {
+                                Log($"Algorithm.OnData(): Reduce Portfolio Profit Exposure: reducing small winning position on {i}");
+                                BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity, _liquidate, tag: "PORTFOLIO BREAKER: Closing Losing and Small Winning Positions");
+                            }
+                            if (NotifyBreaker)
+                            {
+                                Notify.Email("christopherjholley23@gmail.com", currentAccount + ": Breaker Triggered", currentAccount + ": Portfolio Percent Change = " + pctChange);
+                                NotifyBreaker = false;
+                            }
+                        }
+                    }
+                    else if (Portfolio[i].Invested)
+                    {
+                        Log($"Algorithm.OnData(): Reduce Portfolio Profit Exposure: reducing large winning position on {i}");
+                        BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity / 2, _liquidate, tag: "PORTFOLIO BREAKER: Reducing Large Winning Positions");
+                    }
+                }
+                if (data[i].EndTime.Minute == 0)
+                {
+                    SymbolInfo[i].BreakerTriggered = false;
+                    NotifyBreaker = true;
+                }
+                var portfolioOverloaded = (Holdings < (Portfolio.TotalPortfolioValue) * maxShortDirection * -1 || Holdings > (Portfolio.TotalPortfolioValue) * maxLongDirection) ? true : false;
+
+                if (reduceMaxPositions && forestPredictions && portfolioOverloaded)
+                {
+                    if (Portfolio[i].Invested && forest.GetBitcoinMarketState() != RandomForest.MarketState.Unknown)
+                    {
+                        if ((forest.GetBitcoinMarketState() == RandomForest.MarketState.Bear && Portfolio[i].Quantity > 0)
+                        || (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bull && Portfolio[i].Quantity < 0))
+                        {
+                            Log($"Algorithm.OnData(): Reduce Maximum Direction: closing losing and small winning positions on {i}");
+                            BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity / 2, _liquidate, tag: "PORTFOLIO DIRECTION REDUCTION: Reducing Position on Wrong Side");
+                            if (NotifyPortfolioOverload)
+                            {
+                                Notify.Email("christopherjholley23@gmail.com", currentAccount + ": Reduce Maximum Direction", $"MarketState = {forest.GetBitcoinMarketState()}, Holdings = {Math.Abs(Holdings / ((Portfolio.TotalPortfolioValue) * maxShortDirection))}");
+                                NotifyPortfolioOverload = false;
+                            }
+                        }
+                    }
+                }
+                if (reEnterReducedPositions && SymbolInfo[i].openOrder?.Time.Day != Time.Day)
+                {
+                    var qty = (risk / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                    var portqty = (risk * 4 / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                    var tradeqty = qty < portqty ? qty : portqty;
+                    var priceRound = Securities[i].SymbolProperties.MinimumPriceVariation;
+                    if (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bull && Portfolio[i].Quantity > 0 && tradeqty > Portfolio[i].Quantity * 1.5m && Portfolio[i].AveragePrice > data[i].Close
+                        && Holdings < (Portfolio.TotalPortfolioValue) * maxLongDirection)
+                    {
+                        Log($"Algorithm.OnData(): ReEnter Position on low quantity {i}");
+                        decimal price = Math.Round(data[i].Close * (1 + .0006m) / priceRound) * priceRound;
+                        SymbolInfo[i].openOrder = BinanceFuturesLimitOrder(i, tradeqty - Portfolio[i].Quantity, price, _immediateOrder, tag: "PORTFOLIO REENTRY LONG: Increasing Size");
+                        openingTrades++;
+                        notifyMessage += $": ReEnter Buy {i}, Qty {qty - Portfolio[i].Quantity}, " +
+                            $"Total Available Qty {Securities[i].BidPrice}  GetOrderbookPriceFill()";
+                    }
+                    else if (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bear && Portfolio[i].Quantity < 0 && tradeqty > Portfolio[i].Quantity * -1.5m && Portfolio[i].AveragePrice < data[i].Close
+                        && Holdings > (Portfolio.TotalPortfolioValue) * maxShortDirection * -1)
+                    {
+                        Log($"Algorithm.OnData(): ReEnter Position on low quantity {i}");
+                        decimal price = Math.Round(data[i].Close * (1 - .0006m) / priceRound) * priceRound;
+                        SymbolInfo[i].openOrder = BinanceFuturesLimitOrder(i, -1 * tradeqty - Portfolio[i].Quantity, price, _immediateOrder, tag: "PORTFOLIO REENTRY SHORT: Increasing Size");
+                        openingTrades++;
+                        notifyMessage += $": ReEnter Sell {i}, Qty {-1 * qty - Portfolio[i].Quantity} ";
+                    }
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug("Error Processing PreTradePortfolioChecks - " + e.Message);
+                return false;
+            }
+        }
+
+        public bool PreTradePortfolioChecksNew(Slice data, string i, decimal pctChange)
+        {
+            try
+            {
+                if (!Startup)
+                    return true;
+
+                Transactions.CancelOpenOrders();
+
+                if (pctChange < DrawdownReduction && DrawdownReduction < 0)
+                {
+                    if (!SymbolInfo[i].BreakerTriggered)
+                    {
+                        SymbolInfo[i].BreakerTriggered = true;
+                        if (Portfolio[i].Invested)
+                        {
+                            // High Volatility breaker
+                            if (Portfolio[i].UnrealizedProfit < (Portfolio.TotalPortfolioValue) / 100 * risk)
                             {
                                 Log($"Algorithm.OnData(): Reduce Portfolio DrawdownReduction: removing small profit position on {i}");
                                 BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity, _liquidate, tag: "PORTFOLIO BREAKER: Closing Losing and Small Winning Positions");
@@ -642,7 +743,7 @@ namespace QuantConnect.Algorithm.CSharp
                     SymbolInfo[i].BreakerTriggered = false;
                     NotifyBreaker = true;
                 }
-                var portfolioOverloaded = (Holdings < (TotalPortfolioValue) * maxShortDirection * -1 || Holdings > (TotalPortfolioValue) * maxLongDirection) ? true : false;
+                var portfolioOverloaded = (Holdings < (Portfolio.TotalPortfolioValue) * maxShortDirection * -1 || Holdings > (Portfolio.TotalPortfolioValue) * maxLongDirection) ? true : false;
 
                 if (reduceMaxPositions && forestPredictions && portfolioOverloaded)
                 {
@@ -655,7 +756,7 @@ namespace QuantConnect.Algorithm.CSharp
                             BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity / 2, _liquidate, tag: "PORTFOLIO DIRECTION REDUCTION: Reducing Position on Wrong Side");
                             if (NotifyPortfolioOverload)
                             {
-                                Notify.Email("christopherjholley23@gmail.com", currentAccount + ": Reduce Maximum Direction", $"MarketState = {forest.GetBitcoinMarketState()}, Holdings = {Math.Abs(Holdings / ((TotalPortfolioValue) * maxShortDirection))}");
+                                Notify.Email("christopherjholley23@gmail.com", currentAccount + ": Reduce Maximum Direction", $"MarketState = {forest.GetBitcoinMarketState()}, Holdings = {Math.Abs(Holdings / ((Portfolio.TotalPortfolioValue) * maxShortDirection))}");
                                 NotifyPortfolioOverload = false;
                             }
                         }
@@ -665,7 +766,7 @@ namespace QuantConnect.Algorithm.CSharp
                 {
                     decimal tradeqty = Portfolio[i].Quantity > 0 ? GetPositionSize(i, Direction.Long) : GetPositionSize(i, Direction.Short);
                     if (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bull && Portfolio[i].Quantity > 0 && tradeqty > Portfolio[i].Quantity * 1.5m && Portfolio[i].AveragePrice > data[i].Close
-                        && Holdings < (TotalPortfolioValue) * maxLongDirection)
+                        && Holdings < (Portfolio.TotalPortfolioValue) * maxLongDirection)
                     {
                         Log($"Algorithm.OnData(): ReEnter Position on low quantity {i}");
                         SymbolInfo[i].openOrder = BinanceFuturesMarketOrder(i, tradeqty - Portfolio[i].Quantity, _immediateOrder, tag: "PORTFOLIO REENTRY LONG: Increasing Size");
@@ -674,7 +775,7 @@ namespace QuantConnect.Algorithm.CSharp
                             $"Total Available Qty {Securities[i].BidPrice}  GetOrderbookPriceFill()";
                     }
                     else if (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bear && Portfolio[i].Quantity < 0 && tradeqty < Portfolio[i].Quantity * -1.5m && Portfolio[i].AveragePrice < data[i].Close
-                        && Holdings > (TotalPortfolioValue) * maxShortDirection * -1)
+                        && Holdings > (Portfolio.TotalPortfolioValue) * maxShortDirection * -1)
                     {
                         Log($"Algorithm.OnData(): ReEnter Position on low quantity {i}");
                         SymbolInfo[i].openOrder = BinanceFuturesMarketOrder(i, -1 * tradeqty - Portfolio[i].Quantity, _immediateOrder, tag: "PORTFOLIO REENTRY SHORT: Increasing Size");
@@ -825,6 +926,134 @@ namespace QuantConnect.Algorithm.CSharp
             }
         }
 
+        public void PlaceTrades(Slice data, string i)
+        {
+            try
+            {
+                var tickSize = Securities[i].SymbolProperties.LotSize;
+                var priceRound = Securities[i].SymbolProperties.MinimumPriceVariation;
+                var tradeTime = data[i].EndTime.Minute == 0 || data[i].EndTime.Minute == 30;
+
+
+                if (((data[i].Close < SymbolInfo[i].VWAP_week.Current.Value && data[i].EndTime.Minute == 0)
+                    || data[i].Close < SymbolInfo[i].BuyStop) && Portfolio[i].Quantity > 0)
+                {
+                    Log($"Algorithm.OnData(): Close buy order signal generated on on {i}, Close: {data[i].Close}, VWAP: {Math.Round(SymbolInfo[i].VWAP_week.Current.Value, 3)}, Buy Stop: {SymbolInfo[i].BuyStop}");
+                    notifyMessage += data[i].EndTime.Minute == 0 ?
+                        $": CLOSING on VWAP Long on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%" :
+                        $": CLOSING on Vol Long on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%";
+                    closingTrades++;
+                    BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity, _liquidate, tag: "Liquidating Long Position, VWAP Stop Triggered");
+                }
+                else if (((data[i].Close > SymbolInfo[i].VWAP_week.Current.Value && data[i].EndTime.Minute == 0)
+                    || data[i].Close > SymbolInfo[i].SellStop) && Portfolio[i].Quantity < 0)
+                {
+                    Log($"Algorithm.OnData(): Close sell order signal generated on {i}, Close: {data[i].Close}, VWAP: {Math.Round(SymbolInfo[i].VWAP_week.Current.Value, 3)}, Sell Stop: {SymbolInfo[i].SellStop}");
+                    notifyMessage += data[i].EndTime.Minute == 0 ?
+                        $": CLOSING on VWAP Short on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%" :
+                        $": CLOSING on Vol Short on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%";
+                    closingTrades++;
+                    BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity, _liquidate, tag: "Liquidating Short Position, VWAP Stop Triggered");
+                }
+
+                //////////////////if (index.TradeDirection == Direction.Long || index.TradeDirection == Direction.Both)
+                //{
+                if (tradeTime && data[i].Close > SymbolInfo[i].OpenLongEntry && data[i].Close > SymbolInfo[i].VWAP_week.Current.Value
+                    && Portfolio[i].Quantity == 0
+                    && Holdings < (Portfolio.TotalPortfolioValue) * maxLongDirection
+                    && SymbolInfo[i].StdevDifference <= 0
+                    && SymbolInfo[i].VolTrigger == false)
+                {
+                    Log($"Algorithm.OnData(): {data[i].EndTime} - Buys signal generated on " + i);
+                    var portqty = (risk * 5 / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].BuyQuantity = (decimal)SymbolInfo[i].SizeAdjustment * (risk / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].BuyStop = data[i].Close - stopMult * SymbolInfo[i].ATR.Current.Value;
+                    if (SymbolInfo[i].BuyQuantity != 0)
+                    {
+                        if (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bull)
+                            SymbolInfo[i].BuyQuantity = SymbolInfo[i].BuyQuantity * (risk + forestAdjustment) / risk;
+                        decimal qty = SymbolInfo[i].BuyQuantity < portqty ? Math.Round(SymbolInfo[i].BuyQuantity / tickSize, 0) * tickSize : Math.Round(portqty / tickSize, 0) * tickSize;
+                        decimal price = Math.Round(Securities[i].Price * 1.0014m / priceRound) * priceRound;
+
+                        if (qty > 0)
+                        {
+                            SymbolInfo[i].openOrder = BinanceFuturesLimitOrder(i, qty, price, tag: "Buy Signal Generated");
+                            notifyMessage += $": Buy {i}, Qty {qty} ";
+                            openingTrades++;
+                            return;
+                        }
+                    }
+
+                }
+                else if (Portfolio[i].Quantity > 0 && SymbolInfo[i].BuyStop != null && volOnVWAP)
+                {
+                    switch (volOnVWAPType)
+                    {
+                        case "Straight":
+                            SymbolInfo[i].BuyStop = Math.Max((decimal)SymbolInfo[i].BuyStop, SymbolInfo[i].VWAP_week.Current.Value - SymbolInfo[i].ATR.Current.Value);
+                            break;
+                        case "StopMult":
+                            SymbolInfo[i].BuyStop = Math.Max((decimal)SymbolInfo[i].BuyStop, SymbolInfo[i].VWAP_week.Current.Value - stopMult * SymbolInfo[i].ATR.Current.Value);
+                            break;
+                        case "Sqrt":
+                            SymbolInfo[i].BuyStop = Math.Max((decimal)SymbolInfo[i].BuyStop, SymbolInfo[i].VWAP_week.Current.Value - (decimal)Math.Sqrt((double)stopMult) * SymbolInfo[i].ATR.Current.Value);
+                            break;
+                    }
+                }
+                //}
+
+                /////////////////if (index.TradeDirection == Direction.Short || index.TradeDirection == Direction.Both)
+                //{
+                if (tradeTime && data[i].Close < SymbolInfo[i].OpenShortEntry && data[i].Close < SymbolInfo[i].VWAP_week.Current.Value
+                    && Portfolio[i].Quantity == 0
+                    && Holdings > (Portfolio.TotalPortfolioValue) * maxShortDirection * -1
+                    && SymbolInfo[i].StdevDifference <= 0
+                    && SymbolInfo[i].VolTrigger == false)
+                {
+                    Log($"Algorithm.OnData(): {data[i].EndTime} - Sell signal generated on " + i);
+                    var portqty = (risk * 5 / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].SellQuantity = (decimal)SymbolInfo[i].SizeAdjustment * ((risk + forestAdjustment / 3) / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].SellStop = data[i].Close + stopMult * SymbolInfo[i].ATR.Current.Value;
+                    if (SymbolInfo[i].SellQuantity != 0)
+                    {
+                        if (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bear)
+                            SymbolInfo[i].SellQuantity = SymbolInfo[i].SellQuantity * (risk + forestAdjustment) / risk;
+                        decimal qty = SymbolInfo[i].SellQuantity < portqty ? -1 * Math.Round(SymbolInfo[i].SellQuantity / tickSize, 0) * tickSize : -1 * Math.Round(portqty / tickSize, 0) * tickSize;
+                        decimal price = Math.Round(Securities[i].Price * (1 - .0014m) / priceRound) * priceRound;
+
+                        if (qty < 0)
+                        {
+                            SymbolInfo[i].openOrder = BinanceFuturesLimitOrder(i, qty, price, tag: "Sell Signal Generated");
+                            notifyMessage += $": Sell {i}, Qty {qty} ";
+                            openingTrades++;
+                            return;
+                        }
+                    }
+                }
+                else if (Portfolio[i].Quantity < 0 && SymbolInfo[i].SellStop != null && volOnVWAP)
+                {
+                    switch (volOnVWAPType)
+                    {
+                        case "Straight":
+                            SymbolInfo[i].SellStop = Math.Min((decimal)SymbolInfo[i].SellStop, SymbolInfo[i].VWAP_week.Current.Value + SymbolInfo[i].ATR.Current.Value);
+                            break;
+                        case "StopMult":
+                            SymbolInfo[i].SellStop = Math.Min((decimal)SymbolInfo[i].SellStop, SymbolInfo[i].VWAP_week.Current.Value + stopMult * SymbolInfo[i].ATR.Current.Value);
+                            break;
+                        case "Sqrt":
+                            SymbolInfo[i].SellStop = Math.Min((decimal)SymbolInfo[i].SellStop, SymbolInfo[i].VWAP_week.Current.Value + (decimal)Math.Sqrt((double)stopMult) * SymbolInfo[i].ATR.Current.Value);
+                            break;
+                    }
+                }
+                //}
+
+            }
+            catch (Exception e)
+            {
+                Debug("Error Processing PlaceTrades() - " + e.Message);
+            }
+        }
+
         public void PlaceTradesNew(Slice data, string i)
         {
             try
@@ -833,10 +1062,10 @@ namespace QuantConnect.Algorithm.CSharp
                 {
                     if (ExitCondition(data, i))
                     {
-                        Log($"Algorithm.OnData(): Close regular order generated on {i}, Expectancy: {Math.Round(SymbolInfo[i].Expectancy, 2)}, Port Value: {Math.Round(TotalPortfolioValue, 2)}");
+                        Log($"Algorithm.OnData(): Close regular order generated on {i}, Expectancy: {Math.Round(SymbolInfo[i].Expectancy, 2)}, Port Value: {Math.Round(Portfolio.TotalPortfolioValue, 2)}");
                         notifyMessage += data[i].EndTime.Minute == 0 ?
-                            $": CLOSING on VWAP {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (TotalPortfolioValue) * 100, 2)}%" :
-                            $": CLOSING on Vol {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (TotalPortfolioValue) * 100, 2)}%";
+                            $": CLOSING on VWAP {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%" :
+                            $": CLOSING on Vol {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%";
                         closingTrades++;
 
                         BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity, _liquidate, tag: "Liquidating Long Position, VWAP Stop Triggered");
@@ -848,10 +1077,6 @@ namespace QuantConnect.Algorithm.CSharp
                 var tradeTime = data[i].EndTime.Minute == 0 || data[i].EndTime.Minute == 30;
                 //////////////////if (index.TradeDirection == Direction.Long || index.TradeDirection == Direction.Both)
                 //{
-                if (tradeTime && SymbolInfo[i].openOrder?.Quantity > 0 && (SymbolInfo[i].openOrder?.Status == OrderStatus.Submitted || SymbolInfo[i].openOrder?.Status == OrderStatus.PartiallyFilled))
-                {
-                    SymbolInfo[i].openOrder.Cancel();
-                }
                 if (EnterCondition(data, i) == Direction.Long)
                 {
                     Log($"Algorithm.OnData(): {data[i].EndTime} - Buys signal generated on " + i);
@@ -860,7 +1085,7 @@ namespace QuantConnect.Algorithm.CSharp
                     decimal qty = GetPositionSize(i, Direction.Long);
                     decimal price = GetPositionPrice(i, Direction.Long);
 
-                    SymbolInfo[i].OpenTradePortQty = TotalPortfolioValue;
+                    SymbolInfo[i].OpenTradePortQty = Portfolio.TotalPortfolioValue;
 
                     if (qty > 0)
                     {
@@ -889,10 +1114,6 @@ namespace QuantConnect.Algorithm.CSharp
 
                 /////////////////if (index.TradeDirection == Direction.Short || index.TradeDirection == Direction.Both)
                 //{
-                if (tradeTime && SymbolInfo[i].openOrder?.Quantity < 0 && (SymbolInfo[i].openOrder?.Status == OrderStatus.Submitted || SymbolInfo[i].openOrder?.Status == OrderStatus.PartiallyFilled))
-                {
-                    SymbolInfo[i].openOrder.Cancel();
-                }
                 if (EnterCondition(data, i) == Direction.Short)
                 {
                     Log($"Algorithm.OnData(): {data[i].EndTime} - Sell signal generated on " + i);
@@ -901,7 +1122,7 @@ namespace QuantConnect.Algorithm.CSharp
                     decimal qty = GetPositionSize(i, Direction.Short);
                     decimal price = GetPositionPrice(i, Direction.Short);
 
-                    SymbolInfo[i].OpenTradePortQty = TotalPortfolioValue;
+                    SymbolInfo[i].OpenTradePortQty = Portfolio.TotalPortfolioValue;
 
                     if (qty < 0)
                     {
@@ -943,10 +1164,10 @@ namespace QuantConnect.Algorithm.CSharp
                 {
                     if (ExitCondition(data, i, true))
                     {
-                        Log($"Algorithm.OnData(): Close Oppo order signal generated on on {i}, Expectancy: {Math.Round(SymbolInfo[i].Expectancy, 2)}, Port Value: {Math.Round(TotalPortfolioValue, 2)}");
+                        Log($"Algorithm.OnData(): Close Oppo order signal generated on on {i}, Expectancy: {Math.Round(SymbolInfo[i].Expectancy, 2)}, Port Value: {Math.Round(Portfolio.TotalPortfolioValue, 2)}");
                         notifyMessage += data[i].EndTime.Minute == 0 ?
-                            $": CLOSING Oppo Order on VWAP {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (TotalPortfolioValue) * 100, 2)}%" :
-                            $": CLOSING Oppo Order on Vol {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (TotalPortfolioValue) * 100, 2)}%";
+                            $": CLOSING Oppo Order on VWAP {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%" :
+                            $": CLOSING Oppo Order on Vol {(Portfolio[i].IsLong ? "Long" : "Short")} on {i}, Profit {Math.Round(Portfolio[i].UnrealizedProfit / (Portfolio.TotalPortfolioValue) * 100, 2)}%";
                         closingTrades++;
                         BinanceFuturesMarketOrder(i, -Portfolio[i].Quantity, _liquidate, tag: "Liquidating Long Position, VWAP Stop Triggered");
                         if (data[i].EndTime.Minute != 0)
@@ -955,10 +1176,6 @@ namespace QuantConnect.Algorithm.CSharp
                 }
 
                 var tradeTime = data[i].EndTime.Minute == 0 || data[i].EndTime.Minute == 30;
-                if (tradeTime && SymbolInfo[i].openOrder?.Quantity < 0 && (SymbolInfo[i].openOrder?.Status == OrderStatus.Submitted || SymbolInfo[i].openOrder?.Status == OrderStatus.PartiallyFilled))
-                {
-                    SymbolInfo[i].openOrder.Cancel();
-                }
                 if (EnterCondition(data, i, true) == Direction.Long)
                 {
                     Log($"Algorithm.OnData(): {data[i].EndTime} - Oppo 'Buy' signal generated on {i}, shorting into strength");
@@ -968,7 +1185,7 @@ namespace QuantConnect.Algorithm.CSharp
                     decimal qty = GetPositionSize(i, Direction.Long, true);
                     decimal price = GetPositionPrice(i, Direction.Long, true);
 
-                    SymbolInfo[i].OpenTradePortQty = TotalPortfolioValue;
+                    SymbolInfo[i].OpenTradePortQty = Portfolio.TotalPortfolioValue;
 
                     if (qty < 0)
                     {
@@ -995,10 +1212,6 @@ namespace QuantConnect.Algorithm.CSharp
                 }
 
                 // Short is actually a positive quantity
-                if (tradeTime && SymbolInfo[i].openOrder?.Quantity > 0 && (SymbolInfo[i].openOrder?.Status == OrderStatus.Submitted || SymbolInfo[i].openOrder?.Status == OrderStatus.PartiallyFilled))
-                {
-                    SymbolInfo[i].openOrder.Cancel();
-                }
                 if (EnterCondition(data, i, true) == Direction.Short)
                 {
                     Log($"Algorithm.OnData(): {data[i].EndTime} - Oppo 'Sell' signal generated on {i}, buying into weakness");
@@ -1006,7 +1219,7 @@ namespace QuantConnect.Algorithm.CSharp
 
                     decimal qty = GetPositionSize(i, Direction.Short, true);
                     decimal price = GetPositionPrice(i, Direction.Short, true);
-                    SymbolInfo[i].OpenTradePortQty = TotalPortfolioValue;
+                    SymbolInfo[i].OpenTradePortQty = Portfolio.TotalPortfolioValue;
 
                     if (qty > 0)
                     {
@@ -1061,7 +1274,7 @@ namespace QuantConnect.Algorithm.CSharp
 
             }
 
-            if (hardLossLimit && Portfolio[i].UnrealizedProfit / (SymbolInfo[i].OpenTradePortQty == 0 ? TotalPortfolioValue : SymbolInfo[i].OpenTradePortQty) < -hardLossPercent)
+            if (hardLossLimit && Portfolio[i].UnrealizedProfit / (SymbolInfo[i].OpenTradePortQty == 0 ? Portfolio.TotalPortfolioValue : SymbolInfo[i].OpenTradePortQty) < -hardLossPercent)
                 return true;
 
             return false;
@@ -1072,13 +1285,15 @@ namespace QuantConnect.Algorithm.CSharp
 
             if (volTrigger && SymbolInfo[i].VolTrigger)
             {
-                Log($"Volatility Trigger on {i}, no trade");
+                if (LiveMode)
+                    Log($"Volatility Trigger on {i}, no trade");
                 return Direction.Both;
             }
 
             if (tradeLimit && SymbolInfo[i].WeekTrades > SymbolInfo[i].maxWeekTrades)
             {
-                Log($"Max Weekly Trades Trigger on {i}, no trade");
+                if (LiveMode)
+                    Log($"Max Weekly Trades Trigger on {i}, no trade");
                 return Direction.Both;
             }
 
@@ -1090,28 +1305,30 @@ namespace QuantConnect.Algorithm.CSharp
 
             if (Portfolio[i].Quantity != 0)
             {
-                Log($"Already in a trade for {i}, quantity = {Portfolio[i].Quantity}");
+                if (LiveMode)
+                    Log($"Already in a trade for {i}, quantity = {Portfolio[i].Quantity}");
                 return Direction.Both;
             }
 
             if (SymbolInfo[i].StdevDifference > 0)
             {
-                Log($"STD Difference too large for {i}, difference = {SymbolInfo[i].StdevDifference}");
+                if (LiveMode)
+                    Log($"STD Difference too large for {i}, difference = {SymbolInfo[i].StdevDifference}");
                 return Direction.Both;
             }
 
             if (data[i].Close > SymbolInfo[i].OpenLongEntry && data[i].Close > SymbolInfo[i].VWAP_week.Current.Value)
             {
 #pragma warning disable CA1305 // Specify IFormatProvider
-                Log($"Time to place a long trade on {i}, oppoTrade = {oppoTrade}, holdings room? {(oppoTrade ? (Holdings < TotalPortfolioValue * maxLongDirection).ToString() : (Holdings > TotalPortfolioValue * maxShortDirection * -1).ToString())}");
+                Log($"Time to place a long trade on {i}, oppoTrade = {oppoTrade}, holdings room? {(oppoTrade ? (Holdings < Portfolio.TotalPortfolioValue * maxLongDirection).ToString() : (Holdings > Portfolio.TotalPortfolioValue * maxShortDirection * -1).ToString())}");
 #pragma warning restore CA1305 // Specify IFormatProvider
                 if (!oppoTrade &&
-                    Holdings < TotalPortfolioValue * maxLongDirection)
+                    Holdings < Portfolio.TotalPortfolioValue * maxLongDirection)
                 {
                     return Direction.Long;
                 }
                 else if (oppoTrade &&
-                    Holdings > TotalPortfolioValue * maxShortDirection * -1)
+                    Holdings > Portfolio.TotalPortfolioValue * maxShortDirection * -1)
                 {
                     return Direction.Long;
                 }
@@ -1119,15 +1336,15 @@ namespace QuantConnect.Algorithm.CSharp
             else if (data[i].Close < SymbolInfo[i].OpenShortEntry && data[i].Close < SymbolInfo[i].VWAP_week.Current.Value)
             {
 #pragma warning disable CA1305 // Specify IFormatProvider
-                Log($"Time to place a short trade on {i}, oppoTrade = {oppoTrade}, holdings room? {(!oppoTrade ? (Holdings < TotalPortfolioValue * maxLongDirection).ToString() : (Holdings > TotalPortfolioValue * maxShortDirection * -1).ToString())}");
+                Log($"Time to place a short trade on {i}, oppoTrade = {oppoTrade}, holdings room? {(!oppoTrade ? (Holdings < Portfolio.TotalPortfolioValue * maxLongDirection).ToString() : (Holdings > Portfolio.TotalPortfolioValue * maxShortDirection * -1).ToString())}");
 #pragma warning restore CA1305 // Specify IFormatProvider
                 if (!oppoTrade &&
-                    Holdings > TotalPortfolioValue * maxShortDirection * -1)
+                    Holdings > Portfolio.TotalPortfolioValue * maxShortDirection * -1)
                 {
                     return Direction.Short;
                 }
                 else if (oppoTrade &&
-                    Holdings < TotalPortfolioValue * maxLongDirection)
+                    Holdings < Portfolio.TotalPortfolioValue * maxLongDirection)
                 {
                     return Direction.Short;
                 }
@@ -1140,7 +1357,7 @@ namespace QuantConnect.Algorithm.CSharp
             if (Portfolio.TotalUnrealisedProfit == 0)
                 return;
             else
-                pctChange = Portfolio.TotalUnrealisedProfit / (TotalPortfolioValue);
+                pctChange = Portfolio.TotalUnrealisedProfit / (Portfolio.TotalPortfolioValue);
 
             foreach (var i in symbols.OrderBy(x => SymbolInfo[x].Expectancy))
             {
@@ -1159,7 +1376,7 @@ namespace QuantConnect.Algorithm.CSharp
                         else if (pctChange > UpMoveReduction && Portfolio[i].Invested)
                         {
                             Log($"Algorithm.OnData(): Reduce Portfolio Profit Exposure: reducing small winning position on {i}");
-                            var qty = (risk / 100) * (TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                            var qty = (risk / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
                             qty = Portfolio[i].IsLong ? qty : qty * -1;
                             BinanceFuturesMarketOrder(i, -(Portfolio[i].Quantity - qty), _liquidate, tag: "Preserving Proft: Reducing Positions");
                             if (NotifyDrawdownReduction)
@@ -1180,7 +1397,7 @@ namespace QuantConnect.Algorithm.CSharp
         public void PostTradePortfolioChecksNew(Slice data)
         {
             decimal pctChange = 0;
-            pctChange = Portfolio.TotalUnrealisedProfit / (TotalPortfolioValue);
+            pctChange = Portfolio.TotalUnrealisedProfit / (Portfolio.TotalPortfolioValue);
 
             foreach (var i in symbols.OrderBy(x => SymbolInfo[x].Expectancy))
             {
@@ -1222,13 +1439,17 @@ namespace QuantConnect.Algorithm.CSharp
         public void DataReset()
         {
             Holdings = 0;
+
+            if (!LiveMode)
+                return;
+
             NotifyBreaker = true;
             NotifyPortfolioOverload = true;
             //NotifyWeekendReduction = true;
             NotifyDrawdownReduction = true;
             var msgbegin = $"Total portfolio Profit: {Math.Round(100 * PortfolioProfit, 2)}%," +
-                $" Current DD: {Math.Min(0, Math.Round(100*(((1 + PortfolioProfit) - (1 + MaxPortValue)) / (1 + MaxPortValue)), 2))}%," +
-                $" Total Portfolio Margin: {Math.Round(100 * (Portfolio.GetBuyingPower(Securities["BTCUSDT"].Symbol) / (TotalPortfolioValue)), 2)}%";
+                $" Current DD: {Math.Min(0, Math.Round(100 * (((1 + PortfolioProfit) - (1 + MaxPortValue)) / (1 + MaxPortValue)), 2))}%," +
+                $" Total Portfolio Margin: {Math.Round(100 * (Portfolio.GetBuyingPower(Securities["BTCUSDT"].Symbol) / (Portfolio.TotalPortfolioValue)), 2)}%";
             if (SavingsAccountUSDTHoldings + SavingsAccountNonUSDTValue + SwapAccountUSDHoldings != 0)
                 msgbegin += $", Binance Open Margin: {Math.Round(100 * (1 - (Portfolio.GetBuyingPower(Securities["BTCUSDT"].Symbol) / Portfolio.TotalPortfolioValue)), 2)}%";
             notifyMessage = msgbegin + $" || {numMessageSymbols + notifyMessage}";
@@ -1253,7 +1474,7 @@ namespace QuantConnect.Algorithm.CSharp
                 notifyMessage += $", {holdingsCount} Futures Holdings" + holdingsMessage;
                 if (numMessageSymbols != 0)
                 {
-                    var subject = openingTrades > 0 && closingTrades > 0 ? "Opening & Closing Trades" :(openingTrades > 1 ? "Opening Trades" : (openingTrades > 0 ? "Opening Trade" : (closingTrades > 1 ? "Closing Trades" : "Closing Trade")));
+                    var subject = openingTrades > 0 && closingTrades > 0 ? "Opening & Closing Trades" : (openingTrades > 1 ? "Opening Trades" : (openingTrades > 0 ? "Opening Trade" : (closingTrades > 1 ? "Closing Trades" : "Closing Trade")));
                     Notify.Email("christopherjholley23@gmail.com", currentAccount + $": BINANCE: {numMessageSymbols} New " + subject, notifyMessage);
                 }
                 else if (DateTime.UtcNow.Minute == 0 && (DateTime.UtcNow.Hour == 0 || DateTime.UtcNow.Hour == 12))
@@ -1271,7 +1492,7 @@ namespace QuantConnect.Algorithm.CSharp
             var qty = 0m;
             if (direction == Direction.Long)
             {
-                qty = SymbolInfo[i].SizeAdjustment * (risk / 100) * (TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                qty = SymbolInfo[i].SizeAdjustment * (risk / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
 
                 if ((forest.GetBitcoinMarketState() == RandomForest.MarketState.Bull && !oppTrade) ||
                     (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bear && oppTrade))
@@ -1279,7 +1500,7 @@ namespace QuantConnect.Algorithm.CSharp
             }
             else if (direction == Direction.Short)
             {
-                qty = SymbolInfo[i].SizeAdjustment * ((risk + forestAdjustment / 3) / 100) * (TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
+                qty = SymbolInfo[i].SizeAdjustment * ((risk + forestAdjustment / 3) / 100) * (Portfolio.TotalPortfolioValue) / SymbolInfo[i].ATR.Current.Value;
 
                 if ((forest.GetBitcoinMarketState() == RandomForest.MarketState.Bear && !oppTrade) ||
                     (forest.GetBitcoinMarketState() == RandomForest.MarketState.Bull && oppTrade))
@@ -1304,7 +1525,7 @@ namespace QuantConnect.Algorithm.CSharp
             if (adjustSizeVolTrigger)
                 qty = SymbolInfo[i].VolTrigger ? qty / 2 : qty;
 
-            qty = qty < portqty ? qty : portqty;
+            qty = Math.Abs(qty) < portqty ? qty : (qty < 0 ? -portqty : portqty);
             /*if (_symbolLimits != null)
             {
                 qty = _symbolLimits.Any(x => x.SymbolOrPair == i) ? Math.Min(_symbolLimits.First(x => x.SymbolOrPair == i).Brackets.Where(x => x.Cap > TotalPortfolioValue / 3).First().Cap / Securities[i].Price, qty) : qty;
@@ -1324,17 +1545,21 @@ namespace QuantConnect.Algorithm.CSharp
 
             if ((direction == Direction.Short && !oppTrade) ||
                     (direction == Direction.Long && oppTrade))
-                    price = Math.Round(Securities[i].Price * (1 - .0014m) / priceRound) * priceRound;
+                price = Math.Round(Securities[i].Price * (1 - .0014m) / priceRound) * priceRound;
 
             return price;
         }
         public void SavingsTransferAndConfigReset()
         {
+            if (!LiveMode)
+                return;
+
             string dipMsg = "Daily Account Adjustment";
             if (IsWarmingUp && !Startup)
                 return;
 
             ResetBinanceTimestamp();
+            /*
             if (IsSpotExchangeActive())
             {
                 var spot = SpotWalletUSDTTransfer();
@@ -1344,14 +1569,14 @@ namespace QuantConnect.Algorithm.CSharp
             else
             {
                 dipMsg += $": Spot Exchange Inactive, Please try again later";
-            }
+            }*/
             // Move dollars to savings if greater than 50% of total account values
             SavingsAccountUSDTHoldings = GetBinanceSavingsAccountUSDTHoldings();
             SwapAccountUSDHoldings = GetBinanceSwapAccountUSDHoldings();
             SavingsAccountNonUSDTValue = GetBinanceTotalSavingsAccountNonUSDValue();
 
             ResetConfigVariables();
-
+            /*
             var totalAccount = TotalPortfolioValue;
             if (Portfolio.CashBook["USDT"].ValueInAccountCurrency / totalAccount > 0.35m)
             {
@@ -1393,12 +1618,12 @@ namespace QuantConnect.Algorithm.CSharp
             }
             if (IsWarmingUp)
                 return;
-
+            */
         }
 
-        public void DipPurchase(QuantConnect.Data.Market.TradeBar data)
+        public void DipPurchase(Data.Market.TradeBar data)
         {
-            if (IsWarmingUp)
+            if (IsWarmingUp || !LiveMode)
                 return;
 
             string dipMsg = "Daily Dip Purchase";
@@ -1443,13 +1668,13 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void DailyProfitFee()
         {
-            if (IsWarmingUp)
+            if (IsWarmingUp || !LiveMode)
                 return;
 
             if (PortfolioProfit > HighWaterMark)
             {
                 //Invest in something and transfer to Main account
-                decimal qty = Math.Round(profitPercent * TotalPortfolioValue * (PortfolioProfit - HighWaterMark),2);
+                decimal qty = Math.Round(profitPercent * TotalPortfolioValue * (PortfolioProfit - HighWaterMark), 2);
                 var feepmt = MasterFeePayment(qty);
                 if (!feepmt)
                     feepmt = MasterFeePayment(qty);
@@ -1483,7 +1708,7 @@ namespace QuantConnect.Algorithm.CSharp
                 Log($"OnOrderEvent: {notifyMessage}");
                 Notify.Email("christopherjholley23@gmail.com", currentAccount + ": BINANCE: Invalid Order", notifyMessage);
             }
-            else if(orderEvent.Status == OrderStatus.Filled || orderEvent.Status == OrderStatus.Canceled)
+            else if (orderEvent.Status == OrderStatus.Filled || orderEvent.Status == OrderStatus.Canceled)
             {
                 SaveTotalAccountValue();
             }
@@ -1530,6 +1755,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <param name="csvFileName">File path to create</param>
         private void SaveTotalAccountValue(string transactionType = "TRADE")
         {
+            if (!LiveMode)
+                return;
+
             string csvFileName = $"../../../Data/TotalPortfolioValues/{currentAccount}/{currentAccount}_TotalPortfolioValues.csv";
 
             var path = Path.GetDirectoryName(csvFileName);
@@ -1537,7 +1765,7 @@ namespace QuantConnect.Algorithm.CSharp
                 Directory.CreateDirectory(path);
 
             if (!File.Exists(csvFileName))
-            { 
+            {
                 using (var writer = new StreamWriter(csvFileName))
                 {
                     var header = ($"Time,binanceBalance,totalAccountsBalance,TransactionType,tradeProfitPercent,totalPortfolioProfit,portfolioDrawdown,offExchangeValue");
@@ -1563,7 +1791,7 @@ namespace QuantConnect.Algorithm.CSharp
                     if (masterAccount && portDD == 0
                         && transactionType == "TRADE")
                     {
-                       // BitcoinInvestment((TotalPortfolioValue - _prevTotalPortfolioValue) * 0.4m, "New Account High BTC Investment");
+                        // BitcoinInvestment((TotalPortfolioValue - _prevTotalPortfolioValue) * 0.4m, "New Account High BTC Investment");
                         SavingsAccountUSDTHoldings = GetBinanceSavingsAccountUSDTHoldings();
                         SavingsAccountNonUSDTValue = GetBinanceTotalSavingsAccountNonUSDValue();
                         SwapAccountUSDHoldings = GetBinanceSwapAccountUSDHoldings();
@@ -1579,6 +1807,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void LoadPortfolioValues()
         {
+            if (!LiveMode)
+                return;
+
             string csvFileName = $"../../../Data/TotalPortfolioValues/{currentAccount}/{currentAccount}_TotalPortfolioValues.csv";
 
             if (!File.Exists(csvFileName))
@@ -1591,9 +1822,9 @@ namespace QuantConnect.Algorithm.CSharp
                 from line in lines.Skip(1)
                 let elements = line.Split(',')
                 select new StoredPortfolioValue(Convert.ToDateTime(elements[0], CultureInfo.GetCultureInfo("en-US")),
-                Convert.ToDecimal(elements[1], CultureInfo.GetCultureInfo("en-US")), 
+                Convert.ToDecimal(elements[1], CultureInfo.GetCultureInfo("en-US")),
                 Convert.ToDecimal(elements[2], CultureInfo.GetCultureInfo("en-US")),
-                elements[3], 
+                elements[3],
                 Convert.ToDecimal(elements[4], CultureInfo.GetCultureInfo("en-US")),
                 Convert.ToDecimal(elements[5], CultureInfo.GetCultureInfo("en-US")),
                 Convert.ToDecimal(elements[6], CultureInfo.GetCultureInfo("en-US")));
@@ -1619,6 +1850,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void RecalculatePortfolioValues()
         {
+            if (!LiveMode)
+                return;
+
             string csvFileName = $"../../../Data/TotalPortfolioValues/{currentAccount}/{currentAccount}_TotalPortfolioValues.csv";
 
             if (!File.Exists(csvFileName))
@@ -1691,6 +1925,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <param name="csvFileName">File path to create</param>
         private void SaveExpectancyData(ExpectancyData add = null)
         {
+            if (!LiveMode)
+                return;
+
             string csvFileName = $"../../../Data/ExpectancyData.csv";
 
             var path = Path.GetDirectoryName(csvFileName);
@@ -1749,6 +1986,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <param name="csvFileName">File path to create</param>
         private void LoadExpectancyData()
         {
+            if (!LiveMode)
+                return;
+
             string csvFileName = $"../../../Data/ExpectancyData.csv";
 
             if (!File.Exists(csvFileName))
@@ -1816,12 +2056,15 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void ExpectancyEmail()
         {
+            if (!LiveMode)
+                return;
+
             var expectancyMessage = $"Market State = {forest.GetBitcoinMarketState()} - Expectancy Order";
             int expnum = 0;
             foreach (var sym in symbols.Where(x => SymbolInfo[x].Expectancy > -1))
             {
                 expnum++;
-                expectancyMessage += $" : #{expnum} = {sym}, Expectancy = {(int)(100*SymbolInfo[sym].Expectancy)}";
+                expectancyMessage += $" : #{expnum} = {sym}, Expectancy = {(int)(100 * SymbolInfo[sym].Expectancy)}";
             }
             Notify.Email("christopherjholley23@gmail.com", "Expectancy Update", expectancyMessage);
         }
@@ -1862,6 +2105,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void ResetConfigVariables()
         {
+            if (!LiveMode)
+                return;
+
             var _offExchangeValue = Config.GetValue(currentAccount + "-IBAccountBalance", _prevOffExchangeValue);
             if (_offExchangeValue == -23)
             {

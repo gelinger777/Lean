@@ -1193,7 +1193,7 @@ namespace QuantConnect.Algorithm.CSharp
         public override void OnOrderEvent(OrderEvent orderEvent)
         {
             var order = Transactions.GetOrderById(orderEvent.OrderId);
-            if (orderEvent.Status == OrderStatus.Invalid)
+            if (orderEvent.Status == OrderStatus.Invalid && !orderEvent.Message.Contains("Insufficient buying power to complete order"))
             {
                 var invalidMessage = $"Invalid order on {order.Symbol}, Reason: {orderEvent.Message}";
                 Log($"OnOrderEvent: {invalidMessage}");
@@ -1224,20 +1224,24 @@ namespace QuantConnect.Algorithm.CSharp
 
         #region Initialization & Data Mangement Methods
         public void AddSymbols()
-        {/*
+        {
             if (LiveMode)
             {
                 using (BinanceClient _apiClient = new BinanceClient())
                 {
-                    var btcPrices = _apiClient.Spot.Market.Get24HPrices();
+                    var btcPrices = _apiClient.Spot.System.GetExchangeInfo();//.Market.Get24HPrices();
                     if (btcPrices.Success)
                     {
-                        foreach (var btcsym in btcPrices.Data.ToList().Where(x => x.Symbol.EndsWith("BTC")))
-                            symbols.Add(btcsym.Symbol);
+                        foreach (var btcsym in btcPrices.Data.Symbols.ToList().Where(x => x.QuoteAsset == "BTC" && x.Status == Binance.Net.Enums.SymbolStatus.Trading && x.IsSpotTradingAllowed))//.Symbol.EndsWith("BTC")))
+                            symbols.Add(btcsym.Name);
                         return;
                     }
+                    else
+                    {
+                        throw new ArgumentException("Unable to retreive symbols list for initializtion");
+                    }
                 }
-            }*/
+            }
             string dataFolder = Config.GetValue("data-folder", "../../../Data/") + $"equity/binance/hour";
             var folders = Directory.EnumerateFiles(dataFolder);
 

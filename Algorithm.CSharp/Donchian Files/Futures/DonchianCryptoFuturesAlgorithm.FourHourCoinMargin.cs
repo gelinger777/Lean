@@ -27,6 +27,9 @@ namespace QuantConnect.Algorithm.CSharp
         private double CurrentPosition => _btcPosition - NeutralPosition;
         public void ProcessFourHourData(TradeBar data)
         {
+            if (!LiveMode)
+                return;
+
             try
             {
                 if (_btcBalance == null)
@@ -117,6 +120,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public void UpdateCoinBalance()
         {
+            if (!LiveMode)
+                return;
+
             var balances = _apiClient.FuturesCoin.Account.GetAccountInfo();
             var positions = _apiClient.FuturesCoin.GetPositionInformation("BTC");
             var price = _apiClient.Spot.Market.GetPrice("BTCUSDT");
@@ -139,6 +145,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public void NeutralFourHourHoldings(string symbol)
         {
+            if (!LiveMode)
+                return;
+
             Log($"DonchianCryptoFuturesAlgorithm.NeutralFourHourHoldings(): Setting Neutral Coin holding Position");
             var balances = _apiClient.FuturesCoin.Account.GetAccountInfo();
             var positions = _apiClient.FuturesCoin.GetPositionInformation("BTC");
@@ -177,10 +186,16 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public void CloseOpenFourHourPosition(string symbol)
         {
+            if (!LiveMode)
+                return;
+
             NeutralFourHourHoldings(symbol);
         }
         public void SetHoldingsToTargetValue(bool updateCoinBalance = false)
         {
+            if (!LiveMode)
+                return;
+
             if (!IsWarmingUp && updateCoinBalance)
                 UpdateCoinBalance();
             if (SymbolInfo["BTCUSDT"].fourHourTargetPosition == 0)
@@ -192,6 +207,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public void PlaceFourHourBuyOrder(string i)
         {
+            if (!LiveMode)
+                return;
+
             var qty = Math.Ceiling((SymbolInfo["BTCUSDT"].fourHourTargetPosition / 100) - CurrentPosition);
             if (qty > 0)
             {
@@ -207,6 +225,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public void PlaceFourHourSellOrder(string i)
         {
+            if (!LiveMode)
+                return;
+
             var qty = Math.Abs(Math.Floor((SymbolInfo["BTCUSDT"].fourHourTargetPosition / 100) - CurrentPosition));
             if (qty > 0)
             {
@@ -221,6 +242,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public void SetDipPurchases(bool Initialize, DateTime time)
         {
+            if (!LiveMode)
+                return;
+
             if (coinDipPurchase == "None")
                 return;
 

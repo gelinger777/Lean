@@ -41,6 +41,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// </summary>
         public void InitializeBinanceSavingsAccount()
         {
+            if (!LiveMode)
+                return;
+
             Log("DonchianCryptoFuturesAlgorithm.InitializeBinanceSavingsAccount(): Setting Credentials for Account Transfers");
             BinanceClient.SetDefaultOptions(new BinanceClientOptions()
             {
@@ -87,12 +90,23 @@ namespace QuantConnect.Algorithm.CSharp
             }
             else
             {
-                //TODO: Add all securities we have history for
+                string dataFolder = Config.GetValue("data-folder", "../../../Data/") + $"equity/binancefutures/minute";
+                var folders = Directory.EnumerateDirectories(dataFolder);
+                foreach (var path in folders)
+                {
+                    var s = path.Remove(0, (dataFolder.Count() + 1));
+#pragma warning disable CA1304 // Specify CultureInfo
+                    symbols.Add(s.ToUpper());
+#pragma warning restore CA1304 // Specify CultureInfo
+                }
             }
         }
 
         public void ResetBinanceTimestamp()
         {
+            if (!LiveMode)
+                return;
+
             Log("ResetBinanceTimestamp(): Resetting Timestamp For transfer client");
             _apiClient.FuturesUsdt.System.GetServerTime(true);
         }
@@ -103,6 +117,9 @@ namespace QuantConnect.Algorithm.CSharp
         public decimal GetBinanceSavingsAccountUSDTHoldings()
         {
             var balance = SavingsAccountUSDTHoldings;
+
+            if (!LiveMode)
+                return balance;
 
             var savingsAccount = _apiClient.Lending.GetFlexibleProductPosition("USDT");
             if (savingsAccount.Success)
@@ -121,6 +138,9 @@ namespace QuantConnect.Algorithm.CSharp
         public decimal GetBinanceSwapAccountUSDHoldings()
         {
             var balance = SwapAccountUSDHoldings;
+
+            if (!LiveMode)
+                return balance;
 
             var swapAccount = _apiClient.BSwap.GetPoolLiquidityInfoAsync();
             if (swapAccount.Result.Success)
@@ -163,6 +183,9 @@ namespace QuantConnect.Algorithm.CSharp
         {
             var balance = SavingsAccountNonUSDTValue;
 
+            if (!LiveMode)
+                return balance;
+
             var savingsAccount = _apiClient.Lending.GetLendingAccount();
             if (savingsAccount.Success)
             {
@@ -185,6 +208,9 @@ namespace QuantConnect.Algorithm.CSharp
         {
             var balance = SavingsAccountNonUSDTValue;
 
+            if (!LiveMode)
+                return balance;
+
             var savingsAccount = _apiClient.Lending.GetLendingAccount();
             if (savingsAccount.Success)
             {
@@ -201,6 +227,9 @@ namespace QuantConnect.Algorithm.CSharp
         
         public bool CheckForDepositsWithdrawals()
         {
+            if (!LiveMode)
+                return true;
+
             var depdata = _apiClient.WithdrawDeposit.GetDepositHistory(startTime: _prevDepostCheckDate);
             if (depdata.Success)
             {
@@ -221,6 +250,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public bool IsSpotExchangeActive()
         {
+            if (!LiveMode)
+                return true;
+
             var active = false;
             var check = _apiClient.Spot.System.GetSystemStatus();
             if (check.Success)
@@ -236,6 +268,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <returns>True if the transfer was successful</returns>
         public bool SpotWalletUSDTTransfer()
         {
+            if (!LiveMode)
+                return true;
+
             var spot = _apiClient.General.GetUserCoins();
             if (!spot.Success)
             {
@@ -294,6 +329,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public bool SpotWalletToSavingsTransfer()
         {
+            if (!LiveMode)
+                return true;
+
             var spot = _apiClient.General.GetUserCoins();
             if (!spot.Success)
             {
@@ -351,6 +389,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <returns>Id's for the placed order</returns>
         public bool FuturesUSDTSavingsTransfer(TransferDirection direction, decimal quantity)
         {
+            if (!LiveMode)
+                return true;
+
             if (direction == TransferDirection.FuturesToSavings)
             {
                 //Futures to savings
@@ -469,6 +510,9 @@ namespace QuantConnect.Algorithm.CSharp
         public bool BitcoinInvestment(decimal qty, string tag = "")
         {//TODO need to add error checking
             // Transfer dollar amount to spot account for purchase
+            if (!LiveMode)
+                return true;
+
             var BTCOnly = Config.GetValue("BtcDipPurchaseOnly", false);
             if (qty > 10)
             {
@@ -592,6 +636,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public bool AddNewBitcoinTargetAmount(decimal dollarQty)
         {
+            if (!LiveMode)
+                return true;
+
             var success = false;
             var qty = dollarQty / Securities["BTCUSDT"].Price;
             if (_btcCurrentBalance + NeutralBalance >= dollarQty)
@@ -619,6 +666,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public string goldDipPurchase(QuantConnect.Data.Market.TradeBar data)
         {
+            if (!LiveMode)
+                return "Not Live Mode";
+
             if (data.EndTime.Hour != 0)
                 return $" - Not time to purchase Gold - Hour = {data.EndTime.Hour}";
 
@@ -669,6 +719,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <returns>Whether or not the trade was properly executed</returns>
         public bool MasterFeePayment(decimal qty)
         {
+            if (!LiveMode)
+                return true;
+
             var transfer = _apiClient.Spot.Futures.TransferFuturesAccount("USDT", qty, Binance.Net.Enums.FuturesTransferType.FromUsdtFuturesToSpot);
             if (!transfer.Success && transfer.Error.Code != -9000)
             {
@@ -706,6 +759,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <returns>Id's for the Savings product</returns>
         private string GetOrAddSavingsProductID(string Asset, bool reset = false)
         {
+            if (!LiveMode)
+                return "Not Live Mode";
+
             if (!productIdDict.ContainsKey(Asset) || reset)
             {
                 var data = _apiClient.Lending.GetFlexibleProductList(Binance.Net.Enums.ProductStatus.Subscribable);
@@ -735,24 +791,27 @@ namespace QuantConnect.Algorithm.CSharp
         /// <returns>Id's for the Savings product</returns>
         private string GetOrAddSwapProductID(string Asset)
         {
-           /* if (!productIdDict.ContainsKey(Asset))
-            {
-                var data = _apiClient.Lending.GetFlexibleProductList(Binance.Net.Enums.ProductStatus.Subscribable);
+            if (!LiveMode)
+                return "Not Live Mode";
 
-                if (data.Success)
-                {
-                    if (data.Data.Any(x => x.Asset == Asset))
-                    {
-                        productIdDict.Add(Asset, data.Data.FirstOrDefault(x => x.Asset == Asset));
-                        return productIdDict[Asset].ProductId;
-                    }
-                }
-                else if (data.Error.Message != "")
-                {
-                    var msg = ($"ERROR: DonchianCryptoFuturesAlgorithm.GetOrAddSavingsProductID(): Unable to retreive savings product ID for {Asset}, reason = {data.Error.Message}");
-                    Log(msg);
-                }
-            }*/
+            /* if (!productIdDict.ContainsKey(Asset))
+             {
+                 var data = _apiClient.Lending.GetFlexibleProductList(Binance.Net.Enums.ProductStatus.Subscribable);
+
+                 if (data.Success)
+                 {
+                     if (data.Data.Any(x => x.Asset == Asset))
+                     {
+                         productIdDict.Add(Asset, data.Data.FirstOrDefault(x => x.Asset == Asset));
+                         return productIdDict[Asset].ProductId;
+                     }
+                 }
+                 else if (data.Error.Message != "")
+                 {
+                     var msg = ($"ERROR: DonchianCryptoFuturesAlgorithm.GetOrAddSavingsProductID(): Unable to retreive savings product ID for {Asset}, reason = {data.Error.Message}");
+                     Log(msg);
+                 }
+             }*/
 
             return "TODO";
         }
@@ -764,6 +823,8 @@ namespace QuantConnect.Algorithm.CSharp
         /// <returns>Id's for the Savings product</returns>
         private void AddAllProductIDs(List<string> Assets)
         {
+            if (!LiveMode)
+                return;
 
             var data = _apiClient.Lending.GetFlexibleProductList(Binance.Net.Enums.ProductStatus.Subscribable);
             if (data.Success)
@@ -789,6 +850,8 @@ namespace QuantConnect.Algorithm.CSharp
 
         private decimal GetOrAddMinimumSavingsAmount(string Asset)
         {
+            if (!LiveMode)
+                return 0m;
 
             if (!productIdDict.ContainsKey(Asset))
             {
@@ -812,6 +875,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         private decimal GetOrAddMinimumSwapAmount(string Asset)
         {
+            if (!LiveMode)
+                return 0m;
+
             /*
             if (!productIdDict.ContainsKey(Asset))
             {
@@ -836,6 +902,9 @@ namespace QuantConnect.Algorithm.CSharp
         List<ExchangeValue> _offExchangeValues = new List<ExchangeValue>();
         public decimal GetSheetsOffExchangeValues()
         {
+            if (!LiveMode)
+                return _prevOffExchangeValue;
+
             var total = _prevOffExchangeValue;
 
             UserCredential credential;
@@ -934,6 +1003,8 @@ namespace QuantConnect.Algorithm.CSharp
                 Directory.CreateDirectory(path);
 
             var tradesList = new List<BinanceFuturesIncomeHistory>();
+            if (!LiveMode)
+                return tradesList;
             var msTime = startDate;
             if (endDate > DateTime.UtcNow)
                 endDate = DateTime.UtcNow;
@@ -1001,6 +1072,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         private void NewSaveTotalAccountValue(string transactionType = "TRADE")
         {
+            if (!LiveMode)
+                return;
+
             string csvFileName = $"../../../Data/TotalPortfolioValues/{currentAccount}/{currentAccount}_TotalPortfolioValues.csv";
 
             var path = Path.GetDirectoryName(csvFileName);
@@ -1067,6 +1141,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void NewLoadPortfolioValues()
         {
+            if (!LiveMode)
+                return;
+
             string csvFileName = $"../../../Data/TotalPortfolioValues/{currentAccount}/{currentAccount}_TotalPortfolioValues.csv";
 
             if (!File.Exists(csvFileName))
@@ -1107,6 +1184,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public bool CheckAndBalanceFees()
         {
+            if (!LiveMode)
+                return true;
+
             var transactions = GetBinanceHistoricalTransactions(DateTime.Now.AddMonths(-1), DateTime.Now);
             var pastUSDCosts = transactions.Where(x => x.IncomeType == Binance.Net.Enums.IncomeType.Commission && x.Asset == "USDT")?.Select(y => y.Income).Sum();
             var pastBNBCosts = transactions.Where(x => x.IncomeType == Binance.Net.Enums.IncomeType.Commission && x.Asset == "BNB")?.Select(y => y.Income).Sum();
@@ -1130,6 +1210,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public bool PurchaseAndHedgeBinanceForFees(decimal? qty)
         {
+            if (!LiveMode)
+                return true;
+
             if (qty == null)
                 return false;
 
@@ -1144,6 +1227,9 @@ namespace QuantConnect.Algorithm.CSharp
         }
         public void SendMonthlyReport()
         {
+            if (!LiveMode)
+                return;
+
             var start = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month - 1, 01);
             var monthTrades = GetBinanceHistoricalTransactions(start, start.AddMonths(1), false);
             // Send email to account
@@ -1151,6 +1237,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void CalculateFuturesTaxes(int year)
         {
+            if (!LiveMode)
+                return;
+
             var start = new DateTime(year, 1, 1);
             var end = new DateTime(year + 1, 1, 1);
             var yearTrades = GetBinanceHistoricalTransactions(start, end, false);
@@ -1191,6 +1280,9 @@ namespace QuantConnect.Algorithm.CSharp
         IList<IList<Object>> _expectancyData;
         private bool CheckSheetsForAudit()
         {
+            if (!LiveMode)
+                return true;
+
             var auditComplete = false;
             UserCredential credential;
 
@@ -1248,6 +1340,9 @@ namespace QuantConnect.Algorithm.CSharp
         /// <param name="csvFileName">File path to create</param>
         private void LoadExpectancyDataFromSheets()
         {
+            if (!LiveMode)
+                return;
+
             var auditComplete = false;
 
             UserCredential credential;
@@ -1302,6 +1397,9 @@ namespace QuantConnect.Algorithm.CSharp
 
         public void ProcessSheetsExpectancyData(IList<IList<Object>> values)
         {
+            if (!LiveMode)
+                return;
+
             var _lastSym = "BTC";
 
             var columnQuery =
