@@ -592,7 +592,7 @@ namespace QuantConnect.Brokerages.Binance
         /// <returns>Server time</returns>
         public DateTime GetServerTime(bool resetAutoTimestamp = false)
         {
-            var endpoint = $"/fapi/v1/time";
+            var endpoint = $"/api/v3/time";
             var request = new RestRequest(endpoint, Method.GET);
             request.AddHeader(KeyHeader, ApiKey);
 

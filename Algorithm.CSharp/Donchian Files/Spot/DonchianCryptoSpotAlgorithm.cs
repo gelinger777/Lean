@@ -866,7 +866,7 @@ namespace QuantConnect.Algorithm.CSharp
                     if (qty < 0)
                     {
                         LimitOrder(i, qty, price, tag: "Oppo Sell Signal Generated");
-                        notifyMessage += $": Sell {i}, Qty {qty} ";
+                        notifyMessage += $": Oppo Sell {i}, Qty {qty} ";
                         openingTrades++;
                         //SymbolInfo[i].WeekTrades++;
                         return;
@@ -902,7 +902,7 @@ namespace QuantConnect.Algorithm.CSharp
                     if (qty > 0)
                     {
                         LimitOrder(i, qty, price, tag: "Oppo Buy Signal Generated");
-                        notifyMessage += $": Buy {i}, Qty {qty} ";
+                        notifyMessage += $": Oppo Buy {i}, Qty {qty} ";
                         openingTrades++;
                         //SymbolInfo[i].WeekTrades++;
                         return;
