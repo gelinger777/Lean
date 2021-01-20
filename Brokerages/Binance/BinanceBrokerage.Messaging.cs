@@ -139,7 +139,7 @@ namespace QuantConnect.Brokerages.Binance
         {
             try
             {
-                var msg = Messages.BaseMessage.Parse(e.Message);
+                var msg = BaseMessage.Parse(e.Message);
                 if (msg != null)
                 {
                     handler(msg);
@@ -157,7 +157,7 @@ namespace QuantConnect.Brokerages.Binance
             switch (message.Event)
             {
                 case EventType.Execution:
-                    var upd = message.ToObject<Messages.Execution>();
+                    var upd = message.ToObject<Execution>();
                     if (upd.ExecutionType.Equals("TRADE", StringComparison.OrdinalIgnoreCase))
                     {
                         OnFillOrder(upd);

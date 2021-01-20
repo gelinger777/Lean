@@ -490,13 +490,15 @@ namespace QuantConnect.Algorithm.CSharp
                 {
                     return false;
                 }
-                if (Portfolio[i].Quantity > 0 && SymbolInfo[i].BuyStop == null && !IsWarmingUp)
+                if (Portfolio[i].Quantity > 0 && !IsWarmingUp)
                 {
-                    SymbolInfo[i].BuyStop = Portfolio[i].AveragePrice - stopMult * SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].OpenTradePortQty = TotalPortfolioValue;
+                    SymbolInfo[i].BuyStop = SymbolInfo[i].BuyStop == null ? Portfolio[i].AveragePrice - stopMult * SymbolInfo[i].ATR.Current.Value : SymbolInfo[i].BuyStop;
                 }
-                else if (Portfolio[i].Quantity < 0 && SymbolInfo[i].SellStop == null && !IsWarmingUp)
+                else if (Portfolio[i].Quantity < 0 && !IsWarmingUp)
                 {
-                    SymbolInfo[i].SellStop = Portfolio[i].AveragePrice + stopMult * SymbolInfo[i].ATR.Current.Value;
+                    SymbolInfo[i].OpenTradePortQty = TotalPortfolioValue;
+                    SymbolInfo[i].SellStop = SymbolInfo[i].SellStop == null ? Portfolio[i].AveragePrice + stopMult * SymbolInfo[i].ATR.Current.Value : SymbolInfo[i].SellStop;
                 }
                 else if (Portfolio[i].Quantity == 0)
                 {
@@ -1179,11 +1181,11 @@ namespace QuantConnect.Algorithm.CSharp
             var priceRound = Securities[i].SymbolProperties.MinimumPriceVariation;
             if ((direction == Direction.Long && !oppTrade) ||
                 (direction == Direction.Short && oppTrade))
-                price = Math.Round(Securities[i].Price * 1.0014m / priceRound) * priceRound;
+                price = Math.Round(Securities[i].Price * 1.0025m / priceRound) * priceRound;
 
             if ((direction == Direction.Short && !oppTrade) ||
                     (direction == Direction.Long && oppTrade))
-                price = Math.Round(Securities[i].Price * (1 - .0014m) / priceRound) * priceRound;
+                price = Math.Round(Securities[i].Price * (1 - .0025m) / priceRound) * priceRound;
 
             return price;
         }
@@ -1224,7 +1226,7 @@ namespace QuantConnect.Algorithm.CSharp
 
         #region Initialization & Data Mangement Methods
         public void AddSymbols()
-        {
+        {/*
             if (LiveMode)
             {
                 using (BinanceClient _apiClient = new BinanceClient())
@@ -1241,7 +1243,7 @@ namespace QuantConnect.Algorithm.CSharp
                         throw new ArgumentException("Unable to retreive symbols list for initializtion");
                     }
                 }
-            }
+            }*/
             string dataFolder = Config.GetValue("data-folder", "../../../Data/") + $"equity/binance/hour";
             var folders = Directory.EnumerateFiles(dataFolder);
 

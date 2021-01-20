@@ -180,6 +180,8 @@ namespace QuantConnect.Brokerages.Binance
         /// </summary>
         public override bool IsConnected => WebSocket.IsOpen;
 
+        public override bool AccountInstantlyUpdated => true;
+
         /// <summary>
         /// Creates wss connection
         /// </summary>
@@ -430,7 +432,7 @@ namespace QuantConnect.Brokerages.Binance
                 Log.Error(err);
             }
 
-            OnMessageImpl(e);
+            OnMessageImpl(sender, e, OnUserMessageImpl);
         }
 
         #endregion

@@ -140,15 +140,15 @@ namespace QuantConnect.Brokerages.Binance.Messages
         public static BaseMessage Parse(string data)
         {
             var wrapped = JObject.Parse(data);
-            var eventType = wrapped["data"]["e"].ToObject<string>();
+            var eventType = wrapped.ContainsKey("data") ? wrapped["data"]["e"].ToObject<string>() : wrapped["e"].ToObject<string>();
             switch (eventType)
             {
                 case "executionReport":
-                    return wrapped.GetValue("data").ToObject<Messages.Execution>();
+                    return wrapped.ContainsKey("data") ? wrapped.GetValue("data").ToObject<Messages.Execution>() : wrapped.ToObject<Execution>();
                 case "depthUpdate":
-                    return wrapped.GetValue("data").ToObject<Messages.OrderBookUpdateMessage>();
+                    return wrapped.ContainsKey("data") ? wrapped.GetValue("data").ToObject<Messages.OrderBookUpdateMessage>() : wrapped.ToObject<OrderBookUpdateMessage>();
                 case "trade":
-                    return wrapped.GetValue("data").ToObject<Messages.Trade>();
+                    return wrapped.ContainsKey("data") ? wrapped.GetValue("data").ToObject<Messages.Trade>() : wrapped.ToObject<Trade>();
                 default:
                     return null;
             }
