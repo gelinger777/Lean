@@ -245,7 +245,7 @@ namespace QuantConnect.Brokerages.Binance
             var account = _apiClient.GetCashBalance();
             var balances = account.Balances?.Where(balance => balance.Amount > 0).ToList();
             if (balances == null || !balances.Any())
-                return new List<CashAmount>();
+                return _cashHoldings == null ? new List<CashAmount>() : _cashHoldings;
 
             _cashHoldings =  balances
                 .Select(b => new CashAmount(b.Amount, b.Asset.LazyToUpper()))
@@ -259,7 +259,7 @@ namespace QuantConnect.Brokerages.Binance
         /// <returns></returns>
         public List<CashAmount> GetCashBalance(Interfaces.IAlgorithm algorithm)
         {
-            var account = _apiClient.GetCashBalance();
+            var account = _apiClient.GetCashBalance(algorithm.IsWarmingUp);
             var balances = account.Balances?.Where(balance => balance.Amount > 0).ToList();
             if (balances == null || !balances.Any())
                 return new List<CashAmount>();

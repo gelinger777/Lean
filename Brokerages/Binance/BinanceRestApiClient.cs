@@ -156,7 +156,7 @@ namespace QuantConnect.Brokerages.Binance
         /// Gets the total account cash balance for specified account type
         /// </summary>
         /// <returns></returns>
-        public Messages.AccountInformation GetCashBalance(Interfaces.IAlgorithm algorithm = null)
+        public Messages.AccountInformation GetCashBalance(bool IsWarmingUp = true)
         {
             var timestampResult = CheckAutoTimestamp();
 
@@ -173,7 +173,7 @@ namespace QuantConnect.Brokerages.Binance
             }
             if (response.StatusCode != HttpStatusCode.OK)
             {
-                if (algorithm == null)
+                if (IsWarmingUp)
                     throw new Exception($"BinanceBrokerage.GetCashBalance: request failed: [{(int)response.StatusCode}] {response.StatusDescription}, Content: {response.Content}, ErrorMessage: {response.ErrorMessage}");
                 else
                     return null;

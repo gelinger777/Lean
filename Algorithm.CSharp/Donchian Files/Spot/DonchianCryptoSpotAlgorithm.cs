@@ -955,7 +955,11 @@ namespace QuantConnect.Algorithm.CSharp
 
             }
 
-            if (hardLossLimit && Portfolio[i].UnrealizedProfit / SymbolInfo[i].OpenTradePortQty < -hardLossPercent)
+            decimal hardLoss = hardLossPercent;
+            if (oppoTrade)
+                hardLoss = hardLoss / 2;
+
+            if (hardLossLimit && Portfolio[i].UnrealizedProfit / SymbolInfo[i].OpenTradePortQty < -hardLoss)
                 return true;
 
             return false;

@@ -1,6 +1,6 @@
 {
   // optional: algorithm class selector
-  "algorithm-type-name": "ParameterizedAlgorithm",
+  "algorithm-type-name": "DonchianFuturesBacktest",
 
   // optional: Algorithm language selector - options CSharp, Python
   "algorithm-language": "CSharp",
@@ -28,7 +28,7 @@
     "extremum": "max",
 
     // optional, if defined and backtest complies with the targets then trigger ended event
-    "target-value": 3
+    //"target-value": 3
   },
 
   // if it doesn't comply just drop the backtest
@@ -36,13 +36,13 @@
     {
       "target": "Drawdown",
       "operator": "lessOrEqual", // less, greaterOrEqual, greater, notEqual, equals
-      "target-value": 0.15
-    },
+      "target-value": 0.35
+    }/*,
     {
       "target": "Total Trades",
       "operator": "greater",
       "target-value": 2
-    }
+    }*/
   ],
 
   // optional: default is process count / 2
@@ -51,18 +51,19 @@
   // optimization parameters
   "parameters": [
     {
-      "name": "ema-slow",
-      "min": 10,
-      "max": 50
+      "name": "vwapRestDays",
+      "min": 1,
+      "max": 10
+      "step": 1,
     },
     {
-      "name": "ema-fast",
-      "min": 50,
-      "max": 150,
-      "step": 50,
+      "name": "dchPeriod",
+      "min": 5,
+      "max": 50,
+      //"step": 5,
 
       // optional
-      "min-step": 0.0001
+      "min-step": 1
     }
   ]
 }
